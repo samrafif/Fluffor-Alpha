@@ -19,10 +19,6 @@ class Loss(Function):
         """
         Bacward pass. returns the local gradients.
 
-        Params:
-            x: numpy.ndarray of shape (batches, n_out), predictions
-            y: numpy.ndarray of shape (batches, n_out), ground truth
-
         """
         return self.grads["X"]
 
