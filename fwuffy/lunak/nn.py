@@ -1,0 +1,103 @@
+import imp
+import numpy as np
+from collections import defaultdict
+
+from tabulate import tabulate
+
+from .base import Function
+from .layers import Layer
+from .losses import Loss
+
+
+class Model:
+    def __init__(self):
+        pass
+
+
+class Sequential(Model):
+    def __init__(self, layers: list[Layer], input_dim: int, loss: Loss):
+        super().__init__()
+
+        if not isinstance(loss, Loss):
+            ValueError("loss function should be an instance of lunak.losses.Loss")
+        for layer in layers:
+            if not isinstance(layer, Function):
+                raise ValueError(
+                    "layer should be an instance of lunak.layers.Layer or lunak.base.Function"
+                )
+
+        self.loss_func = loss
+        self.input_dim = input_dim
+        self.layers = self._init_layers(layers)
+
+    def _init_layers(self, layers: list[Layer]):
+
+        curr_input_dim = self.input_dim
+        name_counter = defaultdict(int)
+
+        for layer in layers:
+            layer.in_dims = curr_input_dim
+            l_name = layer.name
+
+            layer.init_layer(name_counter[l_name])
+            name_counter[l_name] += 1
+
+            curr_input_dim = layer.out_dims
+
+        return layers
+
+    def __call__(self, x):
+        return self.forward(x)
+
+    def loss(self, x, y):
+
+        return self.loss_func(x, y)
+
+    def forward(self, x):
+
+        for layer in self.layers:
+            x = layer(x)
+        return x
+
+    def backwards(self):
+
+        dy = self.loss_func.backwards()
+
+        for layer in reversed(self.layers):
+            dy = layer.backwards(dy)
+        return dy
+
+    def apply_gradients(self, lr):
+        for layer in self.layers:
+            if isinstance(layer, Layer):
+                layer._update_params(lr)
+
+    def summary(self):
+
+        null = np.array([])
+
+        layer_names = [layer.name for layer in self.layers]
+        output_dims = [layer.out_dims for layer in self.layers]
+
+        param_n = [
+            np.prod(layer.params.get("W", null).shape)
+            + np.prod(layer.params.get("b", null).shape)
+            for layer in self.layers
+        ]
+        trainable_params = sum(
+            [
+                np.prod(layer.params.get("W", null).shape)
+                + np.prod(layer.params.get("b", null).shape)
+                for layer in self.layers
+            ]
+        )
+
+        print(f'Model: "{self.__class__.__name__.lower()}"')
+        print(
+            tabulate(
+                zip(layer_names, output_dims, param_n),
+                headers=["Layer (type)", "Output dim", "Param #"],
+                tablefmt="grid",
+            )
+        )
+        print(f"Trainable params: {trainable_params}")

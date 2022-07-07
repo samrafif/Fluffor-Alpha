@@ -1,0 +1,279 @@
+import numpy as np
+import math
+from typing import Optional
+
+from .activations import activations_dict, leaky_relu, leaky_relu_prime
+from .base import Function
+
+
+class Flatten(Function):
+    def forwards(self, x):
+        self.cache["shape"] = x.shape
+        batch = x.shape[0]
+        return x.reshape(batch, -1)
+
+    def backwards(self, dy):
+        return dy.reshape(self.cache["shape"])
+
+
+class Layer(Function):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.in_dims: int
+        self.out_dims: int
+        self.name = self.__class__.__name__.lower()
+        self.params = {}
+        self.param_updates = {}
+
+    def _init_params(*args, **kwargs):
+        pass
+
+    def init_layer(self, idx, **kwargs):
+        self.name += str(idx)
+        self.name += f" ({self.__class__.__name__})"
+
+    def _update_params(self, lr):
+        """
+        Updates the trainable parameters using the corresponding global gradients
+        computed during the Backpropogation
+
+        Params:
+            lr: float. learning rate.
+        """
+        for key, _ in self.params.items():
+            self.params[key] -= lr * self.param_updates[key]
+
+    def __repr__(self):
+        return f"<{self.__class__.__name__}: in_dim: {self.in_dims}, out_dims: {self.out_dims}>"
+
+
+class LeakyReLU(Layer):
+    def __init__(self, alpha):
+        super().__init__()
+        self.alpha = alpha
+
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        self.out_dims = self.in_dims
+
+    def forwards(self, x):
+        return leaky_relu(x, self.alpha)
+
+    def backwards(self, dy):
+        return dy * self.grads["X"]
+
+    def local_grads(self, x):
+        dx = leaky_relu_prime(x, self.alpha)
+        grads = {"X": dx}
+        return grads
+
+
+class Linear(Layer):
+    def __init__(self, out_dims, in_dims=None, activation=None):
+        super().__init__()
+
+        if activation not in activations_dict.keys():
+            if activation is not None:
+                raise ValueError(f"Activation function {activation} not supported")
+
+        self.in_dims = in_dims
+        self.out_dims = out_dims
+        self.activation = activation
+        self.activation_f = activations_dict[activation]() if activation else None
+
+    def __repr__(self):
+        repr = super().__repr__()[:-2]
+        repr += f", activation: {self.actvation}>"
+        return repr
+
+    def _init_params(self, in_dims, out_dims, activation):
+
+        if activation in ("sigmoid", "tanh", "softmax") or activation is None:
+            scale = 1 / math.sqrt(in_dims)
+
+        if activation == "relu":
+            scale = math.sqrt(2.0 / in_dims)
+
+        self.params["W"] = scale * np.random.randn(in_dims, out_dims)
+        self.params["b"] = scale * np.zeros((1, out_dims))
+
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        self._init_params(self.in_dims, self.out_dims, self.activation)
+
+    def forwards(self, x):
+        """
+        Forward pass for the Linear layer.
+
+        Args:
+            X: numpy.ndarray of shape (batch, in_dim) containing
+                the input value.
+        Returns:
+            Y: numpy.ndarray of shape of shape (batch, out_dim) containing
+                the output value.
+        """
+        if x.shape[-1] != self.in_dims:
+            raise ValueError(
+                f"Expected {self.name} input dims to be {self.in_dims}, got {x.shape} instead"
+            )
+
+        z = np.dot(x, self.params["W"]) + self.params["b"]
+
+        self.cache["x"] = x
+        self.cache["out"] = z
+
+        a = self.activation_f(z) if self.activation_f else z
+
+        return a
+
+    def backwards(self, dy):
+        """
+        Backward pass for the Linear layer.
+        Args:
+            dY: numpy.ndarray of shape (batch, n_out). Global gradient
+                backpropagated from the next layer.
+        Returns:
+            dX: numpy.ndarray of shape (batch, n_out). Global gradient
+                of the Linear layer.
+        """
+        dz = self.activation_f.backwards(dy) if self.activation_f else dy
+        dy_prev = dz.dot(self.grads["x"].T)
+
+        dw = self.grads["w"].T.dot(dz)
+        db = np.sum(dz, axis=0, keepdims=True)
+
+        self.param_updates = {"W": dw, "b": db}
+        return dy_prev
+
+    def local_grads(self, x):
+        """
+        Local gradients of the Linear layer at X.
+        Args:
+            X: numpy.ndarray of shape (n_batch, in_dim) containing the
+                input data.
+        Returns:
+            grads: dictionary of local gradients with the following items:
+                X: numpy.ndarray of shape (batch, in_dim).
+                W: numpy.ndarray of shape (batch, in_dim).
+                b: numpy.ndarray of shape (batch, 1).
+        """
+        gradx_l = self.params["W"]
+        gradw_l = x
+        gradb_l = np.ones_like(self.params["b"])
+
+        grads = {"x": gradx_l, "w": gradw_l, "b": gradb_l}
+        return grads
+
+
+class RNN(Layer):
+    def __init__(
+        self, cell, return_sequences=False, return_state=False, reversed=False
+    ):
+        super().__init__()
+
+
+class RNNCell(Layer):
+    def __init__(self, units, in_dims=None, activation="tanh"):
+        super().__init__()
+
+        if activation not in activations_dict.keys():
+            if activation is not None:
+                raise ValueError(f"Activation function {activation} not supported")
+
+        self.in_dims = in_dims
+        self.out_dims = units
+        self.state_dims = units
+        self.activation = activation
+        self.activation_f = activations_dict[activation]()
+
+    def _init_params(self, in_dims, state_dims, out_dims, activation):
+
+        if activation in ("sigmoid", "tanh", "softmax") or activation is None:
+            scale = 1 / math.sqrt(in_dims)
+
+        if activation == "relu":
+            scale = math.sqrt(2.0 / in_dims)
+
+        # Input params
+        self.params["Wx"] = scale * np.random.randn(state_dims, in_dims)
+
+        # Hidden params
+        self.params["Ws"] = scale * np.random.randn(state_dims, state_dims)
+        self.params["bs"] = np.zeros((state_dims, 1))
+
+        # Output params
+        self.params["Wy"] = scale * np.random.randn(out_dims, state_dims)
+        self.params["by"] = np.zeros((out_dims, 1))
+
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        self._init_params(self.in_dims, self.state_dims, self.out_dims, self.activation)
+
+    def forwards(self, x, state):
+        """
+        Forward pass for a RNN cell.
+
+        Args:
+            x: numpy.ndarray of shape (in_dim) containing
+                the input value.
+
+            state: numpy.ndarray of shape (units) containing
+                the previous state.
+
+        Returns:
+            y: numpy.ndarray of shape (units) containing
+                the output value.
+
+            new_state: numpy.ndarray of shape (units) containing
+                the new computed state.
+        """
+        x = np.dot(self.params["Wx"], x)
+        state = np.dot(self.params["Ws"], state) + self.params["bs"]
+        tanh_in = x + state
+        new_state = self.activation_f(tanh_in)
+        self.cache["s"] = new_state
+
+        y = np.dot(self.params["Wy"], new_state) + self.params["by"]
+
+        return y, new_state
+    
+    def backwards(self, dy, ds_prev, prev_param_updates):
+        
+        dwy = np.dot(dy, self.cache["s"].T)
+        dby = np.sum(dy, axis=1, keepdims=True)
+        dsa = np.dot(self.grads["dsa"].T, dy) + ds_prev
+        
+        dtanh = self.activation_f.backwards(dsa)
+        dbs = np.sum(dtanh, axis=1, keepdims=True)
+        dws = np.dot(dtanh, self.grads["dWs"].T)
+        dwx = np.dot(dtanh, self.grads["dWx"].T)
+        dx = np.dot(self.grads["dx"].T, dtanh)
+        ds_prev = np.dot(self.grads["dsp"].T, dtanh)
+        
+        param_updates = [x + y for x, y in zip(prev_param_updates, [dwy, dws, dwx, dby, dbs])]
+        #param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
+        self.param_updates = {
+            "Wy": param_updates[0],
+            "Ws": param_updates[1],
+            "Wx": param_updates[2],
+            "by": param_updates[3],
+            "bs": param_updates[4]
+        }
+        
+        return dx, ds_prev, param_updates
+
+    def local_grads(self, x, state):
+        
+        dsa = self.params["Wy"]
+        ds_p = self.params["Ws"]
+        dx = self.params["Wx"]
+        dwx = x
+        dws = state
+        
+        grads = {"dWx": dwx, "dx": dx, "dsa": dsa, "dWs": dws, "dsp": ds_p}
+        return grads
+
+class LSTMCell(Layer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
