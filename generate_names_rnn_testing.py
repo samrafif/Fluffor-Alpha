@@ -110,7 +110,7 @@ for epoch in range(EPOCHS):
     losses = [CrossEntropyLoss() for y in preds]
     for pred, loss, y in zip(preds, losses, Y):
         loss_val += loss.forward(pred, y)
-    if epoch % 1000 == 0:
+    if epoch % round(EPOCHS/50) == 0:
         loss_history.append(loss_val/len(preds))
     
     dys = []
