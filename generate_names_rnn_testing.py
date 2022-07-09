@@ -99,7 +99,7 @@ for epoch in range(EPOCHS):
     
     for char, tanh in zip(X, tanhs):
         y, state = cell(char, state, tanh)
-        y_probs = softmaxe(y)
+        y_probs = softmaxe(y.reshape(1,y.shape[0])).reshape((y.shape[0], y.shape[1]))
         #print(y_probs)
         
         states.append(state)
@@ -141,8 +141,8 @@ for epoch in range(EPOCHS):
             hidden = np.zeros((units , 1))
 
             while letter != '<END>' and len(name)<15:
-                input_softmax, hidden = cell(letter_x, hidden, layer_tanh)
-                y_pred = softmaxe(input_softmax)
+                y, hidden = cell(letter_x, hidden, layer_tanh)
+                y_pred = softmaxe(y.reshape(1,y.shape[0])).reshape((y.shape[0], y.shape[1]))
 
                 index = np.random.choice(indexes, p=y_pred.ravel())
                 letter = index_to_chars[index]
