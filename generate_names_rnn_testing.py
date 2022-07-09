@@ -69,64 +69,63 @@ names = [name.strip().lower() for name in names]
 random.shuffle(names)
 print(names[:5])
 
-EPOCHS = 100001
+EPOCHS = 5
 units = len(unique_chars)
 input_dims = len(unique_chars)
 
 cell = RNNCell(units, input_dims)
 cell.init_layer(0)
-optim = SGD(0.01)
+optim = SGD()
 loss_history = []
 
 # Training
 for epoch in range(EPOCHS):
     
-    # create the X inputs and Y labels
-    index = epoch % len(names)
-    X = [None] + [chars_to_index[ch] for ch in names[index]] 
-    Y_c = X[1:] + [chars_to_index["<END>"]]
+    epoch_time = time.time()
+    for namex in track(names):
+        X = [None] + [chars_to_index[ch] for ch in namex] 
+        Y_c = X[1:] + [chars_to_index["<END>"]]
 
-    # transform the input X and label Y into one hot enconding.
-    X = one_hot_encoding(X, input_dims)
-    Y = np.array(one_hot_encoding(Y_c, units), dtype=int)
-    tanhs = [Tanh() for c in X]
-    softmaxe = Softmax()
-    preds = []
-    
-    
-    state = np.zeros((units, 1))
-    states = [state]
-    
-    for char, tanh in zip(X, tanhs):
-        y, state = cell(char, state, tanh)
-        y_probs = softmaxe(y.reshape(1,y.shape[0])).reshape((y.shape[0], y.shape[1]))
-        #print(y_probs)
+        # transform the input X and label Y into one hot enconding.
+        X = one_hot_encoding(X, input_dims)
+        Y = np.array(one_hot_encoding(Y_c, units), dtype=int)
+        tanhs = [Tanh() for c in X]
+        softmaxe = Softmax()
+        preds = []
         
-        states.append(state)
-        preds.append(y_probs)
+        
+        state = np.zeros((units, 1))
+        states = [state]
+        
+        for char, tanh in zip(X, tanhs):
+            y, state = cell(char, state, tanh)
+            y_probs = softmaxe(y.reshape(1,y.shape[0])).reshape((y.shape[0], y.shape[1]))
+            #print(y_probs)
+            
+            states.append(state)
+            preds.append(y_probs)
+        
+        preds = np.array(preds)
+        loss_val = 0
+        losses = [CrossEntropyLoss() for y in preds]
+        for pred, loss, y in zip(preds, losses, Y):
+            loss_val += loss.forward(pred, y)
+        loss_val = loss_val/len(namex)
+        
+        dys = []
+        for loss in losses:
+            dys.append(loss.backward())
+        param_updates = [0,0,0,0,0]
+        ds_prev = np.zeros_like(states[0])
+        
+        for dy_idx, dy in reversed(list(enumerate(dys))):
+            dx, ds_prev, param_updates = cell.backwards(dy, ds_prev, param_updates, X[dy_idx], states[dy_idx], states[dy_idx+1], tanhs[dy_idx])
+        
+        cell.params, _ = optim.optim(cell.params, param_updates)
     
-    preds = np.array(preds)
-    loss_val = 0
-    losses = [CrossEntropyLoss() for y in preds]
-    for pred, loss, y in zip(preds, losses, Y):
-        loss_val += loss.forward(pred, y)
-    if epoch % round(EPOCHS/50) == 0:
-        loss_history.append(loss_val/len(preds))
-    
-    dys = []
-    for loss in losses:
-        dys.append(loss.backward())
-    param_updates = [0,0,0,0,0]
-    ds_prev = np.zeros_like(states[0])
-    
-    for dy_idx, dy in reversed(list(enumerate(dys))):
-        dx, ds_prev, param_updates = cell.backwards(dy, ds_prev, param_updates, X[dy_idx], states[dy_idx], states[dy_idx+1], tanhs[dy_idx])
-    
-    #param_updates = [p / len(X) for p in param_updates]
-    cell.params, _ = optim.optim(cell.params, param_updates)
-    
-    if epoch % 10000 == 0:
-        print ("Loss after epoch %d: %f" % (epoch, loss_val/len(preds)))
+    loss_history.append(loss_val)
+    if epoch % 1 == 0:
+        print(f"Epoch {epoch} took {round(time.time()-epoch_time, 3)}s | loss: {loss_val}")
 
         print('Names created:', '\n')
         for i in range(4):
