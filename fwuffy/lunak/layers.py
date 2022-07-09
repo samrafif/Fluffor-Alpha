@@ -166,6 +166,17 @@ class Linear(Layer):
         return grads
 
 
+class Conv2D(Layer):
+    def __init__(self, out_channels, in_channels, kernel_size=3, stride=1, padding=0):
+        super().__init__()
+        
+        self.out_channels = out_channels
+        self.in_channels = in_channels
+        self.kernel_size = kernel_size if isinstance(kernel_size, tuple) else (kernel_size, kernel_size)
+        self.stride = stride
+        self.padding = padding
+
+
 class RNN(Layer):
     def __init__(
         self, cell, return_sequences=False, return_state=False, reversed=False
@@ -210,7 +221,7 @@ class RNNCell(Layer):
         super().init_layer(idx)
         self._init_params(self.in_dims, self.state_dims, self.out_dims, self.activation)
 
-    def forwards(self, x, state):
+    def forwards(self, x, state, tanh):
         """
         Forward pass for a RNN cell.
 
@@ -231,48 +242,63 @@ class RNNCell(Layer):
         x = np.dot(self.params["Wx"], x)
         state = np.dot(self.params["Ws"], state) + self.params["bs"]
         tanh_in = x + state
-        new_state = self.activation_f(tanh_in)
-        self.cache["s"] = new_state
+        new_state = tanh(tanh_in)
 
         y = np.dot(self.params["Wy"], new_state) + self.params["by"]
 
         return y, new_state
-    
-    def backwards(self, dy, ds_prev, prev_param_updates):
-        
-        dwy = np.dot(dy, self.cache["s"].T)
-        dby = np.sum(dy, axis=1, keepdims=True)
+
+    def backwards(self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, tanh):
+
+        dwy = np.dot(dy, curr_state.T)
+        dby = dy
         dsa = np.dot(self.grads["dsa"].T, dy) + ds_prev
-        
-        dtanh = self.activation_f.backwards(dsa)
-        dbs = np.sum(dtanh, axis=1, keepdims=True)
-        dws = np.dot(dtanh, self.grads["dWs"].T)
-        dwx = np.dot(dtanh, self.grads["dWx"].T)
+
+        dtanh = tanh.backwards(dsa)
+        dbs = dtanh
+        dws = np.dot(dtanh, prev_state.T)
+        dwx = np.dot(dtanh, inputs.T)
         dx = np.dot(self.grads["dx"].T, dtanh)
         ds_prev = np.dot(self.grads["dsp"].T, dtanh)
-        
-        param_updates = [x + y for x, y in zip(prev_param_updates, [dwy, dws, dwx, dby, dbs])]
-        #param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
+
+        param_updates = [
+            x + y for x, y in zip(prev_param_updates, [dwy, dws, dwx, dby, dbs])
+        ]
+        param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
         self.param_updates = {
             "Wy": param_updates[0],
             "Ws": param_updates[1],
             "Wx": param_updates[2],
             "by": param_updates[3],
-            "bs": param_updates[4]
+            "bs": param_updates[4],
         }
-        
+
         return dx, ds_prev, param_updates
 
-    def local_grads(self, x, state):
-        
+    def local_grads(self, x, state, tanh):
+
         dsa = self.params["Wy"]
         ds_p = self.params["Ws"]
         dx = self.params["Wx"]
-        dwx = x
-        dws = state
-        
-        grads = {"dWx": dwx, "dx": dx, "dsa": dsa, "dWs": dws, "dsp": ds_p}
+
+        grads = {"dx": dx, "dsa": dsa, "dsp": ds_p}
         return grads
+
+    def _update_params(self, lr, param_updates=None):
+        """
+        Updates the trainable parameters using the corresponding global gradients
+        computed during the Backpropogation
+
+        Params:
+            lr: float. learning rate.
+            param_updates: dict | None, parameter gradients to override the internal gradients.
+        """
+        if param_updates is None:
+            return super()._update_params(lr)
+
+        for key, _ in self.params.items():
+            self.params[key] -= lr * param_updates[key]
+
 
 class LSTMCell(Layer):
     def __init__(self, *args, **kwargs):
