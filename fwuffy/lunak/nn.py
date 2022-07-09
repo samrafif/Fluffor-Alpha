@@ -1,5 +1,6 @@
-import imp
+import inspect
 import numpy as np
+import json
 from collections import defaultdict
 
 from tabulate import tabulate
@@ -101,3 +102,24 @@ class Sequential(Model):
             )
         )
         print(f"Trainable params: {trainable_params}")
+    
+    def save(self, path):
+        saved_model = {}
+        saved_model["model_name"] = self.__class__.__name__
+        saved_model["layers_count"] = len(self.layers)
+        saved_model["input_dims"] = self.input_dim
+        saved_model["loss_func"] = self.loss_func.name
+        saved_model["layers"] = []
+        
+        for layer in self.layers:
+            saved_layer = {}
+            saved_layer["layer_name"] = layer.name
+            saved_layer["layer_type"] = layer.__class__.__name__
+            args = {arg: layer.__dict__.get(arg) for arg in inspect.signature(layer.__class__.__init__).parameters.keys() }
+            args.pop("self")
+            saved_layer["layer_args"] = args
+            saved_layer["layer_params"] = {key: val.tolist() for key, val in layer.params.items()}
+            saved_model["layers"].append(saved_layer)
+        
+        with open(path+".json", "w") as f:
+            json.dump(saved_model, f)

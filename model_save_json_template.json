@@ -1,0 +1,18 @@
+{
+  "model_name":"string",
+  "layers_count":"int",
+  "input_dims":"int",
+  "loss_func":"string",
+  "layers":[
+    {
+      "layer_name":"string",
+      "layer_type":"string",
+      "layer_args":{
+        "arg_name":"arg_val"
+      },
+      "layer_params":{
+        "param_name":"param_val"
+      }
+    }
+  ]
+}
