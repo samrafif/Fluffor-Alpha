@@ -6,16 +6,6 @@ from .activations import activations_dict, leaky_relu, leaky_relu_prime
 from .base import Function
 
 
-class Flatten(Function):
-    def forwards(self, x):
-        self.cache["shape"] = x.shape
-        batch = x.shape[0]
-        return x.reshape(batch, -1)
-
-    def backwards(self, dy):
-        return dy.reshape(self.cache["shape"])
-
-
 class Layer(Function):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -48,6 +38,28 @@ class Layer(Function):
         return f"<{self.__class__.__name__}: in_dim: {self.in_dims}, out_dims: {self.out_dims}>"
 
 
+class Flatten(Layer):
+    def __init__(self):
+        super().__init__()
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        
+        if isinstance(self.in_dims, tuple):
+            self.out_dims = self.in_dims[0]*self.in_dims[1]
+            return
+        
+        self.out_dims = self.in_dims
+    
+    def forwards(self, x):
+        self.cache["shape"] = x.shape
+        batch = x.shape[0]
+        return x.reshape(batch, -1)
+
+    def backwards(self, dy):
+        return dy.reshape(self.cache["shape"])
+
+
 class LeakyReLU(Layer):
     def __init__(self, alpha):
         super().__init__()
@@ -75,15 +87,28 @@ class PRelu(Layer):
 
     def _init_params(self):
 
-        self.params["al"] = np.zeros((1, self.in_dims))
+        self.params["al"] = np.zeros((self.in_dims, self.out_dims))
 
-    def _init_params(self, idx):
-        super()._init_params(idx)
+    def init_layer(self, idx):
+        super().init_layer(idx)
         self.out_dims = self.in_dims
         self._init_params()
 
     def forwards(self, x):
-        return np.dot(x * (x <= 0), self.params["al"])
+        return np.dot(x * (x <= 0), self.params["al"]) + x * (x > 0)
+    
+    def backwards(self, dy):
+        dy_prev = dy * self.grads["x"]
+        dal = self.grads["al"].T.dot(dy)
+        
+        self.param_updates = {"al": dal}
+        return dy_prev
+    
+    def local_grads(self, x):
+        dx = np.dot(1 * (x <= 0), self.params["al"]) + 1 * (x > 0)
+        dal = x * (x <= 0)
+        grads = {"x": dx, "al": dal}
+        return grads
 
 
 class Linear(Layer):
