@@ -1,4 +1,5 @@
 import inspect
+import typing
 import numpy as np
 import json
 from collections import defaultdict
@@ -16,7 +17,7 @@ class Model:
 
 
 class Sequential(Model):
-    def __init__(self, layers: list[Layer], input_dim: int, loss: Loss):
+    def __init__(self, layers: list[Layer], input_dim: typing.Union[int, tuple], loss: Loss):
         super().__init__()
 
         if not isinstance(loss, Loss):
