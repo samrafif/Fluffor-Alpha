@@ -138,7 +138,7 @@ class Linear(Layer):
             scale = math.sqrt(2.0 / in_dims)
 
         self.params["W"] = scale * np.random.randn(in_dims, out_dims)
-        self.params["b"] = scale * np.zeros((1, out_dims))
+        self.params["b"] = np.zeros((1, out_dims))
 
     def init_layer(self, idx):
         super().init_layer(idx)
