@@ -171,3 +171,8 @@ from matplotlib import pyplot as plt
 
 plt.plot(loss_history)
 plt.show()
+
+import json
+with open("namegen.json", "w") as f:
+    params = {arg: val.tolist() for arg, val in cell.params.items()}
+    json.dump(params, f)
