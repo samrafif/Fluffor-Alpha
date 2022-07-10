@@ -131,10 +131,10 @@ class Linear(Layer):
 
     def _init_params(self, in_dims, out_dims, activation):
 
-        if activation in ("sigmoid", "tanh", "softmax") or activation is None:
+        if activation in ("sigmoid", "tanh", "softmax"):
             scale = 1 / math.sqrt(in_dims)
 
-        if activation == "relu":
+        if activation == "relu" or activation is None:
             scale = math.sqrt(2.0 / in_dims)
 
         self.params["W"] = scale * np.random.randn(in_dims, out_dims)
@@ -206,7 +206,7 @@ class Linear(Layer):
 
 
 class Conv2D(Layer):
-    def __init__(self, out_channels, in_channels, kernel_size=3, stride=1, padding=0):
+    def __init__(self, out_channels, in_channels, kernel_size=3, stride=1, padding=0, activation=None):
         super().__init__()
 
         self.out_channels = out_channels
@@ -244,10 +244,10 @@ class RNNCell(Layer):
 
     def _init_params(self, in_dims, state_dims, out_dims, activation):
 
-        if activation in ("sigmoid", "tanh", "softmax") or activation is None:
+        if activation in ("sigmoid", "tanh", "softmax"):
             scale = 1 / math.sqrt(in_dims)
 
-        if activation == "relu":
+        if activation == "relu" or activation is None:
             scale = math.sqrt(2.0 / in_dims)
 
         # Input params
