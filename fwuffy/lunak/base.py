@@ -1,8 +1,8 @@
 class Function:
     def __init__(self):
-        
+
         self.name = self.__class__.__name__
-        
+
         # cache to help in derivation and backprop
         self.cache = {}
 

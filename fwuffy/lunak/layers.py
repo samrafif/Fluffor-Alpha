@@ -69,6 +69,23 @@ class LeakyReLU(Layer):
         return grads
 
 
+class PRelu(Layer):
+    def __init__(self):
+        super().__init__()
+
+    def _init_params(self):
+
+        self.params["al"] = np.zeros((1, self.in_dims))
+
+    def _init_params(self, idx):
+        super()._init_params(idx)
+        self.out_dims = self.in_dims
+        self._init_params()
+
+    def forwards(self, x):
+        return np.dot(x * (x <= 0), self.params["al"])
+
+
 class Linear(Layer):
     def __init__(self, out_dims, in_dims=None, activation=None):
         super().__init__()
@@ -83,9 +100,9 @@ class Linear(Layer):
         self.activation_f = activations_dict[activation]() if activation else None
 
     def __repr__(self):
-        repr = super().__repr__()[:-2]
-        repr += f", activation: {self.actvation}>"
-        return repr
+        reprs = super().__repr__()[:-1]
+        reprs += f", activation: {self.activation}>"
+        return reprs
 
     def _init_params(self, in_dims, out_dims, activation):
 
@@ -119,9 +136,6 @@ class Linear(Layer):
             )
 
         z = np.dot(x, self.params["W"]) + self.params["b"]
-
-        self.cache["x"] = x
-        self.cache["out"] = z
 
         a = self.activation_f(z) if self.activation_f else z
 
@@ -169,14 +183,19 @@ class Linear(Layer):
 class Conv2D(Layer):
     def __init__(self, out_channels, in_channels, kernel_size=3, stride=1, padding=0):
         super().__init__()
-        
+
         self.out_channels = out_channels
         self.in_channels = in_channels
-        self.kernel_size = kernel_size if isinstance(kernel_size, tuple) else (kernel_size, kernel_size)
+        self.kernel_size = (
+            kernel_size
+            if isinstance(kernel_size, tuple)
+            else (kernel_size, kernel_size)
+        )
         self.stride = stride
         self.padding = padding
 
 
+# TODO: Write RNN class wrapper, to automate reccurent loop
 class RNN(Layer):
     def __init__(
         self, cell, return_sequences=False, return_state=False, reversed=False
@@ -248,7 +267,9 @@ class RNNCell(Layer):
 
         return y, new_state
 
-    def backwards(self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, tanh):
+    def backwards(
+        self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, tanh
+    ):
 
         dwy = np.dot(dy, curr_state.T)
         dby = dy
@@ -265,6 +286,7 @@ class RNNCell(Layer):
             x + y for x, y in zip(prev_param_updates, [dwy, dws, dwx, dby, dbs])
         ]
         param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
+
         self.param_updates = {
             "Wy": param_updates[0],
             "Ws": param_updates[1],

@@ -21,6 +21,7 @@ class SGD:
     .. [3] PyTorch - Stochastic gradient descent:
        https://pytorch.org/docs/stable/optim.html
     """
+
     def __init__(self, lr=0.0075, beta=0.9):
         """
         Parameters
@@ -58,11 +59,10 @@ class SGD:
             Tuple of ints containing the velocities for the weights
             and biases.
         """
-        if velocities is None: velocities = [0 for weight in weights]
+        if velocities is None:
+            velocities = [0 for weight in weights]
 
-        velocities = self._update_velocities(
-            gradients, self.beta, velocities
-        )
+        velocities = self._update_velocities(gradients, self.beta, velocities)
         param_updates = {
             "Wy": velocities[0],
             "Ws": velocities[1],
@@ -74,12 +74,11 @@ class SGD:
         for key, _ in weights.items():
             weights[key] -= self.lr * param_updates[key]
 
-
         return weights, velocities
 
     def _update_velocities(self, gradients, beta, velocities):
         """
-        Updates the velocities of the derivates of the weights and 
+        Updates the velocities of the derivates of the weights and
         bias.
         """
         new_velocities = []
@@ -90,6 +89,7 @@ class SGD:
             new_velocities.append(new_velocity)
 
         return new_velocities
+
 
 class SGDb:
     """
@@ -114,6 +114,7 @@ class SGDb:
     .. [3] PyTorch - Stochastic gradient descent:
        https://pytorch.org/docs/stable/optim.html
     """
+
     def __init__(self, lr=0.0075, beta=0.9):
         """
         Parameters
@@ -151,11 +152,10 @@ class SGDb:
             Tuple of ints containing the velocities for the weights
             and biases.
         """
-        if velocities is None: velocities = [0 for weight in weights]
+        if velocities is None:
+            velocities = [0 for weight in weights]
 
-        velocities = self._update_velocities(
-            gradients, self.beta, velocities
-        )
+        velocities = self._update_velocities(gradients, self.beta, velocities)
         new_weights = []
 
         for weight, velocity in zip(weights, velocities):
@@ -166,7 +166,7 @@ class SGDb:
 
     def _update_velocities(self, gradients, beta, velocities):
         """
-        Updates the velocities of the derivates of the weights and 
+        Updates the velocities of the derivates of the weights and
         bias.
         """
         new_velocities = []
