@@ -220,6 +220,27 @@ class Conv2D(Layer):
         )
         self.stride = stride
         self.padding = padding
+        self.activation = activation
+        self.activation_f = activations_dict[activation]() if activation else None
+    
+    def _init_params(self, in_channels, out_channels, kernel_size, activation):
+        if activation in ("sigmoid", "tanh", "softmax"):
+            scale = 1 / math.sqrt(in_channels * kernel_size[0] * kernel_size[1])
+
+        if activation == "relu" or activation is None:
+            scale = math.sqrt(2.0 / in_channels * kernel_size[0] * kernel_size[1])
+        
+        self.params["W"] = scale * np.random.randn(out_channels, in_channels, *kernel_size)
+        
+        self.params["b"] = np.zeros((out_channels, 1))
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        
+        self._init_params(self.in_channels, self.out_channels, self.kernel_size, self.activation)
+    
+    def forward(self, x):
+        pass
 
 
 # TODO: Write RNN class wrapper, to automate reccurent loop
