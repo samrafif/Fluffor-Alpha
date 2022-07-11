@@ -282,6 +282,40 @@ class Conv2D(Layer):
                     y[b, ch, h, w] = np.sum(self.params["W"][ch] * curr_field) + self.params["b"]
         
         return y
+    
+    def backwards(self, dy):
+        
+        x = self.cache["x"]
+        
+        # Calculate global gradient
+        dx = np.zeros_like(x)
+        
+        n, c, h, w = dx.shape
+        kh, kw = self.kernel_size
+        for b in range(n):
+            for ch in range(c):
+                for h, w in product(range(dy.shape[2]), range(dy.shape[3])):
+                    h_offset, w_offset = h * self.stride[0] + kh, w * self.stride[1] + kw
+                    dx[h: h_offset, w: w_offset] += (
+                        self.params["W"][c] * dy[b, ch, h, w]
+                    )
+        
+        # Calculate global gradients w.r.t weights
+        dw = np.zeros_like(self.params["W"])
+        for ch_o in range(self.out_channels):
+            for ch_i in range(self.in_channels):
+                for h, w in product(range(kh), range(kw)):
+                    curr_field = x[:, ch_i, h: h-kh: self.stride[0], w: w-kw: self.stride[1]]
+                    dy_field = dy[:, ch_o]
+                    
+                    dw[ch_o, ch_i, h, w] = np.sum(curr_field * dy_field)
+
+        # Calculate global gradients w.r.t biases
+        db = np.sum(dy, axis=(0, 2, 3)).reshape(-1, 1)
+        
+        self.param_updates = {"W": dw, "b": db}
+        
+        return dx[:,:, self.padding[0]: -self.padding[0], self.padding[1]: -self.padding[1]]
 
 
 # TODO: Write RNN class wrapper, to automate reccurent loop
