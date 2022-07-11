@@ -43,7 +43,7 @@ for epoch_idx in range(n_epochs):
     loss_history.append(loss)
     accuracy_hisory.append(accuracy/100)
     model.backwards()
-    model.apply_gradients(0.05)
+    model.apply_gradients(0.1)
     print("Epoch no. %d loss:  %2f \t accuracy: %2f" % (epoch_idx + 1, loss, accuracy))
 model.save("huh")
 # for idx, layer in enumerate(model.layers):
