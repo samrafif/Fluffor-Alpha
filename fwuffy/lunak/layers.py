@@ -82,17 +82,19 @@ class LeakyReLU(Layer):
 
 
 class PRelu(Layer):
-    def __init__(self):
+    def __init__(self, init=0.25):
         super().__init__()
+        
+        self.init = init
 
-    def _init_params(self):
+    def _init_params(self, init):
 
-        self.params["al"] = np.zeros((self.in_dims, self.out_dims))
+        self.params["al"] = np.tile(init, (self.in_dims, self.out_dims))
 
     def init_layer(self, idx):
         super().init_layer(idx)
         self.out_dims = self.in_dims
-        self._init_params()
+        self._init_params(self.init)
 
     def forwards(self, x):
         return np.dot(x * (x <= 0), self.params["al"]) + x * (x > 0)
