@@ -1,9 +1,11 @@
+from itertools import product
 import numpy as np
 import math
 from typing import Optional
 
 from .activations import activations_dict, leaky_relu, leaky_relu_prime
 from .base import Function
+from .utils import zero_pad
 
 
 class Layer(Function):
@@ -206,7 +208,7 @@ class Linear(Layer):
 
 
 class Conv2D(Layer):
-    def __init__(self, out_channels, in_channels, kernel_size=3, stride=1, padding=0, activation=None):
+    def __init__(self, out_channels, in_channels=None, kernel_size=3, stride=1, padding=0, activation=None):
         super().__init__()
 
         self.out_channels = out_channels
@@ -216,7 +218,11 @@ class Conv2D(Layer):
             if isinstance(kernel_size, tuple)
             else (kernel_size, kernel_size)
         )
-        self.stride = stride
+        self.stride = (
+            stride
+            if isinstance(stride, tuple)
+            else (stride, stride)
+        )
         self.padding = padding
         self.activation = activation
         self.activation_f = activations_dict[activation]() if activation else None
@@ -236,9 +242,44 @@ class Conv2D(Layer):
         super().init_layer(idx)
         
         self._init_params(self.in_channels, self.out_channels, self.kernel_size, self.activation)
+        self.in_channels = self.in_dims[0]
+        
+        self.out_dims = (
+        self.out_channels,
+            1 + ((self.in_dims[1] + 2 * self.padding)-self.kernel_size[0]) // self.stride[0],
+            1 + ((self.in_dims[2] + 2 * self.padding)-self.kernel_size[1]) // self.stride[1]
+            )
     
     def forward(self, x):
-        pass
+        """
+        Forward pass for Conv2D layer
+        
+        params:
+            x: np.ndarray of shape (batches, channels, height, width)
+        
+        returns:
+            y: np.ndarray of shape (batches, channels_out, height_out, width_out)
+        """
+        
+        if self.padding:
+            x = zero_pad(x, self.padding, (2,3))
+        
+        self.cache["x"] = x
+        
+        n, c, h, w = x.shape
+        kh, kw = self.kernel_size
+        
+        out_shape = (n, self.out_channels, 1 + (h-kh) // self.stride[0], 1 + (w-kw) // self.stride[1])
+        y = np.zeros(out_shape)
+        for b in range(n):
+            for ch in range(c):
+                for h, w in product(range(out_shape[2]), range(out_shape[3])):
+                    h_offset, w_offset = h * self.stride[0] + kh, w * self.stride[1] + kw
+                    curr_field = x[h: h + h_offset, w: w + w_offset]
+                    
+                    y[b, ch, h, w] = np.sum(self.params["W"][ch] * curr_field) + self.params["b"]
+        
+        return y
 
 
 # TODO: Write RNN class wrapper, to automate reccurent loop
