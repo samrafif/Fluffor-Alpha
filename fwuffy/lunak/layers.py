@@ -46,7 +46,7 @@ class Flatten(Layer):
         super().init_layer(idx)
         
         if isinstance(self.in_dims, tuple):
-            self.out_dims = self.in_dims[0]*self.in_dims[1]
+            self.out_dims = int(np.prod(self.in_dims))
             return
         
         self.out_dims = self.in_dims
