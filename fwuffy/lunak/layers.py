@@ -247,7 +247,7 @@ class Conv2D(Layer):
         self.in_channels = self.in_dims[0]
         
         self.out_dims = (
-        self.out_channels,
+            self.out_channels,
             1 + ((self.in_dims[1] + 2 * self.padding)-self.kernel_size[0]) // self.stride[0],
             1 + ((self.in_dims[2] + 2 * self.padding)-self.kernel_size[1]) // self.stride[1]
             )
@@ -276,15 +276,18 @@ class Conv2D(Layer):
         for b in range(n):
             for ch in range(c):
                 for h, w in product(range(out_shape[2]), range(out_shape[3])):
-                    h_offset, w_offset = h * self.stride[0] + kh, w * self.stride[1] + kw
-                    curr_field = x[h: h + h_offset, w: w + w_offset]
+                    h_offset, w_offset = h * self.stride[0], w * self.stride[1]
+                    curr_field = x[n, :, h_offset: h_offset + kh, w_offset: w_offset + kw]
                     
                     y[b, ch, h, w] = np.sum(self.params["W"][ch] * curr_field) + self.params["b"]
         
-        return y
+        a = self.activation_f(y) if self.activation else y
+        
+        return a
     
     def backwards(self, dy):
         
+        dy = self.activation_f.backwards(dy) if self.activation else dy
         x = self.cache["x"]
         
         # Calculate global gradient
@@ -296,7 +299,8 @@ class Conv2D(Layer):
             for ch in range(c):
                 for h, w in product(range(dy.shape[2]), range(dy.shape[3])):
                     h_offset, w_offset = h * self.stride[0] + kh, w * self.stride[1] + kw
-                    dx[h: h_offset, w: w_offset] += (
+                    
+                    dx[n, :, h_offset: h_offset + kh, w_offset: w_offset + kw] += (
                         self.params["W"][c] * dy[b, ch, h, w]
                     )
         
