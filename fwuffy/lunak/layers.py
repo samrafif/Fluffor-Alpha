@@ -306,7 +306,6 @@ class Conv2D(Layer):
     def init_layer(self, idx):
         super().init_layer(idx)
         
-        self._init_params(self.in_channels, self.out_channels, self.kernel_size, self.activation)
         self.in_channels = self.in_dims[0]
         
         self.out_dims = (
@@ -314,6 +313,7 @@ class Conv2D(Layer):
             1 + ((self.in_dims[1] + 2 * self.padding)-self.kernel_size[0]) // self.stride[0],
             1 + ((self.in_dims[2] + 2 * self.padding)-self.kernel_size[1]) // self.stride[1]
             )
+        self._init_params(self.in_channels, self.out_channels, self.kernel_size, self.activation)
     
     def forward(self, x):
         """
