@@ -209,6 +209,69 @@ class Linear(Layer):
         return grads
 
 
+class MaxPool2D(Layer):
+    def __init__(self, kernel_size=2, stride=2, padding=0):
+        super().__init__()
+        
+        self.kernel_size = (
+            kernel_size
+            if isinstance(kernel_size, tuple)
+            else (kernel_size, kernel_size)
+        )
+        self.stride = (
+            stride
+            if isinstance(stride, tuple)
+            else (stride, stride)
+        )
+        self.padding = padding
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        
+        self.in_channels = self.in_dims[0]
+        self.out_channels = self.in_channels
+        self.out_dims = (
+            self.out_channels,
+            1 + ((self.in_dims[1] + 2 * self.padding)-self.kernel_size[0]) // self.stride[0],
+            1 + ((self.in_dims[2] + 2 * self.padding)-self.kernel_size[1]) // self.stride[1]
+            )
+    
+    def forwards(self, x):
+        if self.padding:
+            x = zero_pad(x, self.padding, (2,3))
+        
+        n, c, h, w = x.shape
+        kh, kw = self.kernel_size
+        
+        out_shape = (n, self.out_channels, 1 + (h-kh) // self.stride[0], 1 + (w-kw) // self.stride[1])
+        
+        grads = np.zeros_like(x)
+        y = np.zeros(out_shape)
+        for h, w in product(range(out_shape[2]), range(out_shape[3])):
+            h_offset, w_offset = h * kh, w * kw
+            
+            curr_field = x[:, :, h_offset: h_offset+kh, w_offset: w_offset+kw]
+            y[:, :, h, w] = np.max(curr_field, axis=(2,3))
+            
+            for h, w in product(range(kh), range(kw)):
+                
+                grads[:, :, h_offset: h_offset+kh, w_offset: w_offset+kw] = (
+                    x[:, :, h_offset: h_offset+kh, w_offset: w_offset+kw] >= y[:, :, h, w]
+                )
+
+        self.grads["x"] = grads[:, :, self.padding: -self.padding, self.padding: -self.padding]
+        
+        return y
+    
+    def backwards(self, dy):
+        dy = np.repeat(
+            np.repeat(dy, repeats=self.kernel_size[0], axis=2), repeats=self.kernel_size[1], axis=3
+        )
+        return self.grads["x"] * dy
+    
+    def local_grads(self, x):
+        return self.grads
+
 class Conv2D(Layer):
     def __init__(self, out_channels, in_channels=None, kernel_size=3, stride=1, padding=0, activation=None):
         super().__init__()
@@ -319,7 +382,7 @@ class Conv2D(Layer):
         
         self.param_updates = {"W": dw, "b": db}
         
-        return dx[:,:, self.padding[0]: -self.padding[0], self.padding[1]: -self.padding[1]]
+        return dx[:,:, self.padding: -self.padding, self.padding: -self.padding]
 
 
 # TODO: Write RNN class wrapper, to automate reccurent loop
