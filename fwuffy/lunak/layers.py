@@ -272,6 +272,26 @@ class MaxPool2D(Layer):
     def local_grads(self, x):
         return self.grads
 
+class BatchNorm2D(Layer):
+    def __init__(self, eps=1e-5):
+        super().__init__()
+        self.epsilon = eps
+    
+    def _init_params(self, n_channels):
+        self.params["gamma"] = np.ones((1, n_channels, 1, 1))
+        self.params["beta"] = np.zeros((1, n_channels, 1, 1))
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        self.out_dims = self.in_dims
+        self._init_params(self.in_dims[0])
+    
+    def forwards(self, x):
+        
+        mean = np.mean(x, axis=(2,3), keepdims=True)
+        var = np.var(x, axis=(2,3), keepdims=True) + self.epsilon
+        
+
 class Conv2D(Layer):
     def __init__(self, out_channels, in_channels=None, kernel_size=3, stride=1, padding=0, activation=None):
         super().__init__()
@@ -364,7 +384,7 @@ class Conv2D(Layer):
                     h_offset, w_offset = h * self.stride[0] + kh, w * self.stride[1] + kw
                     
                     dx[n, :, h_offset: h_offset + kh, w_offset: w_offset + kw] += (
-                        self.params["W"][c] * dy[b, ch, h, w]
+                        self.params["W"][ch] * dy[b, ch, h, w]
                     )
         
         # Calculate global gradients w.r.t weights
