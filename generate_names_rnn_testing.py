@@ -71,6 +71,13 @@ names = [name.strip().lower() for name in names]
 random.shuffle(names)
 print(names[:5])
 
+#TODO: Implement batching in the module code, not here
+lengths = [len(name) for name in names]
+max_len = max(lengths)
+tokens = [[chars_to_index[ch] for ch in namex] + [0] * (max_len-len(namex)) for namex in names]
+one_hot_tokens = np.array([one_hot_encoding(tok, len(unique_chars)) for tok in tokens])
+batches = np.array(np.split(one_hot_tokens, 13))
+
 EPOCHS = 5
 units = len(unique_chars)
 input_dims = len(unique_chars)
