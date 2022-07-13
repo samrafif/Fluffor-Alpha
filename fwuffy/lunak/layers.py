@@ -1,9 +1,11 @@
+from itertools import product
 import numpy as np
 import math
 from typing import Optional
 
 from .activations import activations_dict, leaky_relu, leaky_relu_prime
 from .base import Function
+from .utils import zero_pad
 
 
 class Layer(Function):
@@ -207,8 +209,138 @@ class Linear(Layer):
         return grads
 
 
+class MaxPool2D(Layer):
+    def __init__(self, kernel_size=2, stride=2, padding=0):
+        super().__init__()
+        
+        self.kernel_size = (
+            kernel_size
+            if isinstance(kernel_size, tuple)
+            else (kernel_size, kernel_size)
+        )
+        self.stride = (
+            stride
+            if isinstance(stride, tuple)
+            else (stride, stride)
+        )
+        self.padding = padding
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        
+        self.in_channels = self.in_dims[0]
+        self.out_channels = self.in_channels
+        self.out_dims = (
+            self.out_channels,
+            1 + ((self.in_dims[1] + 2 * self.padding)-self.kernel_size[0]) // self.stride[0],
+            1 + ((self.in_dims[2] + 2 * self.padding)-self.kernel_size[1]) // self.stride[1]
+            )
+    
+    def forwards(self, x):
+        if self.padding:
+            x = zero_pad(x, self.padding, (2,3))
+        
+        n, c, h, w = x.shape
+        kh, kw = self.kernel_size
+        
+        out_shape = (n, self.out_channels, 1 + (h-kh) // self.stride[0], 1 + (w-kw) // self.stride[1])
+        
+        grads = np.zeros_like(x)
+        y = np.zeros(out_shape)
+        for h, w in product(range(out_shape[2]), range(out_shape[3])):
+            h_offset, w_offset = h * kh, w * kw
+            
+            curr_field = x[:, :, h_offset: h_offset+kh, w_offset: w_offset+kw]
+            y[:, :, h, w] = np.max(curr_field, axis=(2,3))
+            
+            for khs, kws in product(range(kh), range(kw)):
+                
+                grads[:, :, h_offset+khs, w_offset+kws] = (
+                    x[:, :, h_offset+khs, w_offset+kws] >= y[:, :, h, w]
+                )
+
+        self.grads["x"] = grads
+        
+        return y
+    
+    def backwards(self, dy):
+        dy = np.repeat(
+            np.repeat(dy, repeats=self.kernel_size[0], axis=2), repeats=self.kernel_size[1], axis=3
+        )
+        return self.grads["x"] * dy
+    
+    def local_grads(self, x):
+        return self.grads
+
+class BatchNorm2D(Layer):
+    def __init__(self, eps=1e-5):
+        super().__init__()
+        self.epsilon = eps
+    
+    def _init_params(self, n_channels):
+        self.params["gm"] = np.ones((1, n_channels, 1, 1))
+        self.params["bt"] = np.zeros((1, n_channels, 1, 1))
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        self.out_dims = self.in_dims
+        self._init_params(self.in_dims[0])
+    
+    def forwards(self, x):
+        
+        mean = np.mean(x, axis=(2,3), keepdims=True)
+        var = np.var(x, axis=(2,3), keepdims=True) + self.epsilon
+        invvar = 1.0 / var
+        sqrt_invvar = np.sqrt(invvar)
+        
+        centered = x - mean
+        scaled = centered * sqrt_invvar
+        b_normalized = scaled * self.params["gm"] + self.params["bt"]
+        
+        # caching intermediate results for backprop
+        self.cache["mean"] = mean
+        self.cache["var"] = var
+        self.cache["invvar"] = invvar
+        self.cache["sqrt_invvar"] = sqrt_invvar
+        self.cache["centered"] = centered
+        self.cache["scaled"] = scaled
+        self.cache["normalized"] = b_normalized
+
+        
+        return b_normalized
+    
+    def backwards(self, dy):
+        
+        dgm = np.sum(self.cache["scaled"] * dy, axis=(0,2,3), keepdims=True)
+        dbt = np.sum(dy, axis=(0,2,3), keepdims=True)
+        
+        self.param_updates = {"gm": dgm, "bt": dbt}
+        dy = self.params["gm"] * dy
+        dx = self.grads["X"] * dy
+        
+        return dx
+    
+    def local_grads(self, x):
+        
+        n, c, h, w = x.shape
+        ppc = h * w
+        
+        dsqrt_invvar = self.cache["centered"]
+        dinvvar = (2.0 * np.sqrt(self.cache["var"])) * dsqrt_invvar
+        dvar = (-1.0 / self.cache["var"] ** 2) * dinvvar
+        ddenom = self.cache["centered"] * (2 * (ppc - 1) / ppc ** 2) * dvar
+        
+        dcentered = self.cache["sqrt_invvar"]
+        dnum = ppc * dcentered
+        
+        dx = ddenom + dnum
+        
+        grads = {"X": dx}
+        return grads
+
+
 class Conv2D(Layer):
-    def __init__(self, out_channels, in_channels, kernel_size=3, stride=1, padding=0, activation=None):
+    def __init__(self, out_channels, in_channels=None, kernel_size=3, stride=1, padding=0, activation=None):
         super().__init__()
 
         self.out_channels = out_channels
@@ -218,8 +350,105 @@ class Conv2D(Layer):
             if isinstance(kernel_size, tuple)
             else (kernel_size, kernel_size)
         )
-        self.stride = stride
+        self.stride = (
+            stride
+            if isinstance(stride, tuple)
+            else (stride, stride)
+        )
         self.padding = padding
+        self.activation = activation
+        self.activation_f = activations_dict[activation]() if activation else None
+    
+    def _init_params(self, in_channels, out_channels, kernel_size, activation):
+        if activation in ("sigmoid", "tanh", "softmax"):
+            scale = 1 / math.sqrt(in_channels * kernel_size[0] * kernel_size[1])
+
+        if activation == "relu" or activation is None:
+            scale = math.sqrt(2.0 / in_channels * kernel_size[0] * kernel_size[1])
+        
+        self.params["W"] = scale * np.random.randn(out_channels, in_channels, *kernel_size)
+        
+        self.params["b"] = np.zeros((out_channels, 1))
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        
+        self.in_channels = self.in_dims[0]
+        
+        self.out_dims = (
+            self.out_channels,
+            1 + ((self.in_dims[1] + 2 * self.padding)-self.kernel_size[0]) // self.stride[0],
+            1 + ((self.in_dims[2] + 2 * self.padding)-self.kernel_size[1]) // self.stride[1]
+            )
+        self._init_params(self.in_channels, self.out_channels, self.kernel_size, self.activation)
+    
+    def forwards(self, x):
+        """
+        Forward pass for Conv2D layer
+        
+        params:
+            x: np.ndarray of shape (batches, channels, height, width)
+        
+        returns:
+            y: np.ndarray of shape (batches, channels_out, height_out, width_out)
+        """
+        
+        if self.padding:
+            x = zero_pad(x, self.padding, (2,3))
+        
+        self.cache["x"] = x
+        
+        n, c, h, w = x.shape
+        kh, kw = self.kernel_size
+        
+        out_shape = (n, self.out_channels, 1 + (h-kh) // self.stride[0], 1 + (w-kw) // self.stride[1])
+        y = np.zeros(out_shape)
+        for b in range(n):
+            for ch in range(self.out_channels):
+                for h, w in product(range(out_shape[2]), range(out_shape[3])):
+                    h_offset, w_offset = h * self.stride[0], w * self.stride[1]
+                    curr_field = x[b, :, h_offset: h_offset + kh, w_offset: w_offset + kw]
+                    
+                    y[b, ch, h, w] = np.sum(self.params["W"][ch] * curr_field) + self.params["b"][ch]
+        
+        a = self.activation_f(y) if self.activation else y
+        
+        return a
+    
+    def backwards(self, dy):
+        
+        dy = self.activation_f.backwards(dy) if self.activation else dy
+        x = self.cache["x"]
+        
+        # Calculate global gradient
+        dx = np.zeros_like(x)
+        
+        n, c, H, W = dx.shape
+        kh, kw = self.kernel_size
+        for b in range(n):
+            for ch in range(self.out_channels):
+                for h, w in product(range(dy.shape[2]), range(dy.shape[3])):
+                    h_offset, w_offset = h * self.stride[0], w * self.stride[1]
+                    dx[b, :, h_offset: h_offset + kh, w_offset: w_offset + kw] += (
+                        self.params["W"][ch] * dy[b, ch, h, w]
+                    )
+        
+        # Calculate global gradients w.r.t weights
+        dw = np.zeros_like(self.params["W"])
+        for ch_o in range(self.out_channels):
+            for ch_i in range(self.in_channels):
+                for h, w in product(range(kh), range(kw)):
+                    curr_field = x[:, ch_i, h: H-kh+h+1: self.stride[0], w: W-kw+w+1: self.stride[1]]
+                    dy_field = dy[:, ch_o]
+                    
+                    dw[ch_o, ch_i, h, w] = np.sum(curr_field * dy_field)
+
+        # Calculate global gradients w.r.t biases
+        db = np.sum(dy, axis=(0, 2, 3)).reshape(-1, 1)
+        
+        self.param_updates = {"W": dw, "b": db}
+        
+        return dx[:,:, self.padding: -self.padding, self.padding: -self.padding]
 
 
 # TODO: Write RNN class wrapper, to automate reccurent loop
