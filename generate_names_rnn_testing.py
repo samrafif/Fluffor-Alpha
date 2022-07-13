@@ -71,13 +71,6 @@ names = [name.strip().lower() for name in names]
 random.shuffle(names)
 print(names[:5])
 
-#TODO: Implement batching in the module code, not here
-lengths = [len(name) for name in names]
-max_len = max(lengths)
-tokens = [[chars_to_index[ch] for ch in namex] + [0] * (max_len-len(namex)) for namex in names]
-one_hot_tokens = np.array([one_hot_encoding(tok, len(unique_chars)) for tok in tokens])
-batches = np.array(np.split(one_hot_tokens, 13))
-
 EPOCHS = 5
 units = len(unique_chars)
 input_dims = len(unique_chars)
@@ -113,7 +106,9 @@ for epoch in range(EPOCHS):
             preds.append(y)
 
         preds = np.array(preds)
-        preds = softmaxe(preds)
+        y_probs = softmaxe(y.reshape(1, y.shape[0])).reshape(
+                (y.shape[0], y.shape[1])
+            )
         loss_val = 0
         losses = [CrossEntropyLoss() for y in preds]
         for pred, loss, y in zip(preds, losses, Y):
