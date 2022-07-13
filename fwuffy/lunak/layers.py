@@ -24,6 +24,7 @@ class Layer(Function):
     def init_layer(self, idx, **kwargs):
         self.name += str(idx)
         self.name += f" ({self.__class__.__name__})"
+        self.out_dims = self.in_dims
 
     def _update_params(self, lr):
         """
@@ -51,7 +52,6 @@ class Flatten(Layer):
             self.out_dims = int(np.prod(self.in_dims))
             return
         
-        self.out_dims = self.in_dims
     
     def forwards(self, x):
         self.cache["shape"] = x.shape
@@ -66,10 +66,6 @@ class LeakyReLU(Layer):
     def __init__(self, alpha):
         super().__init__()
         self.alpha = alpha
-
-    def init_layer(self, idx):
-        super().init_layer(idx)
-        self.out_dims = self.in_dims
 
     def forwards(self, x):
         return leaky_relu(x, self.alpha)
@@ -95,7 +91,6 @@ class PRelu(Layer):
 
     def init_layer(self, idx):
         super().init_layer(idx)
-        self.out_dims = self.in_dims
         self._init_params(self.init)
 
     def forwards(self, x):
@@ -215,11 +210,6 @@ class Dropout(Layer):
         
         self.rate = rate
     
-    def init_layer(self, idx):
-        super().init_layer(idx)
-        
-        self.out_dims = self.in_dims
-    
     def forwards(self, x):
         mask = np.random.binomial([np.ones((1,self.out_dims))],1-self.rate)[0] * (1.0 / (1-self.rate))
         self.mask = mask
@@ -305,7 +295,6 @@ class BatchNorm2D(Layer):
     
     def init_layer(self, idx):
         super().init_layer(idx)
-        self.out_dims = self.in_dims
         self._init_params(self.in_dims[0])
     
     def forwards(self, x):
