@@ -209,6 +209,28 @@ class Linear(Layer):
         return grads
 
 
+class Dropout(Layer):
+    def __init__(self, rate):
+        super().__init__()
+        
+        self.rate = rate
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        
+        self.out_dims = self.in_dims
+    
+    def forwards(self, x):
+        mask = np.random.binomial([np.ones((1,self.out_dims))],1-self.rate)[0] * (1.0 / (1-self.rate))
+        self.mask = mask
+        
+        masked = x * mask
+        return masked
+    
+    def backwards(self, dy):
+        return dy * self.mask
+
+
 class MaxPool2D(Layer):
     def __init__(self, kernel_size=2, stride=2, padding=0):
         super().__init__()
