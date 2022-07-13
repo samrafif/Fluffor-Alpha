@@ -253,13 +253,13 @@ class MaxPool2D(Layer):
             curr_field = x[:, :, h_offset: h_offset+kh, w_offset: w_offset+kw]
             y[:, :, h, w] = np.max(curr_field, axis=(2,3))
             
-            for h, w in product(range(kh), range(kw)):
+            for khs, kws in product(range(kh), range(kw)):
                 
-                grads[:, :, h_offset: h_offset+kh, w_offset: w_offset+kw] = (
-                    x[:, :, h_offset: h_offset+kh, w_offset: w_offset+kw] >= y[:, :, h, w]
+                grads[:, :, h_offset+khs, w_offset+kws] = (
+                    x[:, :, h_offset+khs, w_offset+kws] >= y[:, :, h, w]
                 )
 
-        self.grads["x"] = grads[:, :, self.padding: -self.padding, self.padding: -self.padding]
+        self.grads["x"] = grads
         
         return y
     
@@ -271,6 +271,73 @@ class MaxPool2D(Layer):
     
     def local_grads(self, x):
         return self.grads
+
+class BatchNorm2D(Layer):
+    def __init__(self, eps=1e-5):
+        super().__init__()
+        self.epsilon = eps
+    
+    def _init_params(self, n_channels):
+        self.params["gm"] = np.ones((1, n_channels, 1, 1))
+        self.params["bt"] = np.zeros((1, n_channels, 1, 1))
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        self.out_dims = self.in_dims
+        self._init_params(self.in_dims[0])
+    
+    def forwards(self, x):
+        
+        mean = np.mean(x, axis=(2,3), keepdims=True)
+        var = np.var(x, axis=(2,3), keepdims=True) + self.epsilon
+        invvar = 1.0 / var
+        sqrt_invvar = np.sqrt(invvar)
+        
+        centered = x - mean
+        scaled = centered * sqrt_invvar
+        b_normalized = scaled * self.params["gm"] + self.params["bt"]
+        
+        # caching intermediate results for backprop
+        self.cache["mean"] = mean
+        self.cache["var"] = var
+        self.cache["invvar"] = invvar
+        self.cache["sqrt_invvar"] = sqrt_invvar
+        self.cache["centered"] = centered
+        self.cache["scaled"] = scaled
+        self.cache["normalized"] = b_normalized
+
+        
+        return b_normalized
+    
+    def backwards(self, dy):
+        
+        dgm = np.sum(self.cache["scaled"] * dy, axis=(0,2,3), keepdims=True)
+        dbt = np.sum(dy, axis=(0,2,3), keepdims=True)
+        
+        self.param_updates = {"gm": dgm, "bt": dbt}
+        dy = self.params["gm"] * dy
+        dx = self.grads["X"] * dy
+        
+        return dx
+    
+    def local_grads(self, x):
+        
+        n, c, h, w = x.shape
+        ppc = h * w
+        
+        dsqrt_invvar = self.cache["centered"]
+        dinvvar = (2.0 * np.sqrt(self.cache["var"])) * dsqrt_invvar
+        dvar = (-1.0 / self.cache["var"] ** 2) * dinvvar
+        ddenom = self.cache["centered"] * (2 * (ppc - 1) / ppc ** 2) * dvar
+        
+        dcentered = self.cache["sqrt_invvar"]
+        dnum = ppc * dcentered
+        
+        dx = ddenom + dnum
+        
+        grads = {"X": dx}
+        return grads
+
 
 class Conv2D(Layer):
     def __init__(self, out_channels, in_channels=None, kernel_size=3, stride=1, padding=0, activation=None):
@@ -315,7 +382,7 @@ class Conv2D(Layer):
             )
         self._init_params(self.in_channels, self.out_channels, self.kernel_size, self.activation)
     
-    def forward(self, x):
+    def forwards(self, x):
         """
         Forward pass for Conv2D layer
         
@@ -337,12 +404,12 @@ class Conv2D(Layer):
         out_shape = (n, self.out_channels, 1 + (h-kh) // self.stride[0], 1 + (w-kw) // self.stride[1])
         y = np.zeros(out_shape)
         for b in range(n):
-            for ch in range(c):
+            for ch in range(self.out_channels):
                 for h, w in product(range(out_shape[2]), range(out_shape[3])):
                     h_offset, w_offset = h * self.stride[0], w * self.stride[1]
-                    curr_field = x[n, :, h_offset: h_offset + kh, w_offset: w_offset + kw]
+                    curr_field = x[b, :, h_offset: h_offset + kh, w_offset: w_offset + kw]
                     
-                    y[b, ch, h, w] = np.sum(self.params["W"][ch] * curr_field) + self.params["b"]
+                    y[b, ch, h, w] = np.sum(self.params["W"][ch] * curr_field) + self.params["b"][ch]
         
         a = self.activation_f(y) if self.activation else y
         
@@ -356,15 +423,14 @@ class Conv2D(Layer):
         # Calculate global gradient
         dx = np.zeros_like(x)
         
-        n, c, h, w = dx.shape
+        n, c, H, W = dx.shape
         kh, kw = self.kernel_size
         for b in range(n):
-            for ch in range(c):
+            for ch in range(self.out_channels):
                 for h, w in product(range(dy.shape[2]), range(dy.shape[3])):
-                    h_offset, w_offset = h * self.stride[0] + kh, w * self.stride[1] + kw
-                    
-                    dx[n, :, h_offset: h_offset + kh, w_offset: w_offset + kw] += (
-                        self.params["W"][c] * dy[b, ch, h, w]
+                    h_offset, w_offset = h * self.stride[0], w * self.stride[1]
+                    dx[b, :, h_offset: h_offset + kh, w_offset: w_offset + kw] += (
+                        self.params["W"][ch] * dy[b, ch, h, w]
                     )
         
         # Calculate global gradients w.r.t weights
@@ -372,7 +438,7 @@ class Conv2D(Layer):
         for ch_o in range(self.out_channels):
             for ch_i in range(self.in_channels):
                 for h, w in product(range(kh), range(kw)):
-                    curr_field = x[:, ch_i, h: h-kh: self.stride[0], w: w-kw: self.stride[1]]
+                    curr_field = x[:, ch_i, h: H-kh+h+1: self.stride[0], w: W-kw+w+1: self.stride[1]]
                     dy_field = dy[:, ch_o]
                     
                     dw[ch_o, ch_i, h, w] = np.sum(curr_field * dy_field)
