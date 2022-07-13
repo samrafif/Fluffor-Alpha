@@ -100,15 +100,13 @@ for epoch in range(EPOCHS):
 
         for char, tanh in zip(X, tanhs):
             y, state = cell(char, state, tanh)
-            y_probs = softmaxe(y.reshape(1, y.shape[0])).reshape(
-                (y.shape[0], y.shape[1])
-            )
             # print(y_probs)
 
             states.append(state)
-            preds.append(y_probs)
+            preds.append(y)
 
         preds = np.array(preds)
+        preds = softmaxe(preds)
         loss_val = 0
         losses = [CrossEntropyLoss() for y in preds]
         for pred, loss, y in zip(preds, losses, Y):
