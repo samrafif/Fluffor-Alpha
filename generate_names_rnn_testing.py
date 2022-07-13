@@ -106,9 +106,7 @@ for epoch in range(EPOCHS):
             preds.append(y)
 
         preds = np.array(preds)
-        y_probs = softmaxe(y.reshape(1, y.shape[0])).reshape(
-                (y.shape[0], y.shape[1])
-            )
+        preds = softmaxe(preds)
         loss_val = 0
         losses = [CrossEntropyLoss() for y in preds]
         for pred, loss, y in zip(preds, losses, Y):
