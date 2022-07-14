@@ -518,7 +518,7 @@ class RNN(Layer):
             ds_prev = np.zeros_like(self.state)
             dxseq = []
             
-            for dyel_idx, dyel in enumerate(dseq):
+            for dyel_idx, dyel in reversed(list(enumerate(dseq))):
                 dx, ds_prev, param_updates = self.cell.backwards(
                     dyel,
                     ds_prev,
