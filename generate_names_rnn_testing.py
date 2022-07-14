@@ -84,6 +84,7 @@ loss_history = []
 for epoch in range(EPOCHS):
 
     epoch_time = time.time()
+    random.shuffle(names)
     for namex in track(names):
         X = [None] + [chars_to_index[ch] for ch in namex]
         Y_c = X[1:] + [chars_to_index["<END>"]]
@@ -129,7 +130,7 @@ for epoch in range(EPOCHS):
                 states[dy_idx + 1],
                 tanhs[dy_idx],
             )
-
+        param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
         cell.params, _ = optim.optim(cell.params, param_updates)
 
     loss_history.append(loss_val)
