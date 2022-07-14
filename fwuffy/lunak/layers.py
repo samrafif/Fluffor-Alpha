@@ -3,7 +3,7 @@ import numpy as np
 import math
 from typing import Optional
 
-from .activations import activations_dict, leaky_relu, leaky_relu_prime
+from .activations import Softmax, Tanh, activations_dict, leaky_relu, leaky_relu_prime
 from .base import Function
 from .utils import zero_pad
 
@@ -420,6 +420,7 @@ class Conv2D(Layer):
         n, c, h, w = x.shape
         kh, kw = self.kernel_size
         
+        #TODO: Please vectorize.
         out_shape = (n, self.out_channels, 1 + (h-kh) // self.stride[0], 1 + (w-kw) // self.stride[1])
         y = np.zeros(out_shape)
         for b in range(n):
@@ -473,9 +474,82 @@ class Conv2D(Layer):
 # TODO: Write RNN class wrapper, to automate reccurent loop
 class RNN(Layer):
     def __init__(
-        self, cell, return_sequences=False, return_state=False, reversed=False
+        self, cell, return_sequences=False, return_state=False, reverse=False
     ):
         super().__init__()
+        
+        self.cell = cell
+        self.return_sequences = return_sequences
+        self.return_state = return_state
+        self.reverse = reverse
+        
+        self.state = np.zeros((self.cell.state_dims, 1))
+        self.states = []
+        
+        self.out_sequences = []
+        self.tanhs = []
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        self.cell.init_layer(idx)
+    
+    def forwards(self, x):
+        self.states = []
+        
+        self.out_sequences = []
+        self.tanhs = []
+        self.cache["x"] = x
+        
+        #TODO: 😩 Please implement parallel mini-batching, and please reduce the number of loops
+        seq_len = x.shape[1]
+        for seq in x:
+            out_seq = []
+            states = [self.state]
+            
+            tanhs = [Tanh() for el in range(self.in_dims[1])]
+            for el, tanh in zip(seq, tanhs):
+                out, state = self.cell(el, self.state, tanh)
+                
+                out_seq.append(out)
+                states.append(state)
+                self.state = state
+            self.out_sequences.append(Softmax()(out_seq))
+            self.tanhs.append(tanhs)
+            self.states.append(states)
+        
+        return np.array(self.out_sequences)
+    
+    def backwards(self, dy):
+        dxs = []
+        param_updates = [0, 0, 0, 0, 0]
+        for dseq_idx, dseq in enumerate(dy):
+            ds_prev = np.zeros_like(self.state)
+            dxseq = []
+            
+            for dyel_idx, dyel in enumerate(dseq):
+                dx, ds_prev, param_updates = self.cell.backwards(
+                    dyel,
+                    ds_prev,
+                    param_updates,
+                    self.cache["x"][dseq_idx][dyel_idx],
+                    self.states[dseq_idx][dyel_idx],
+                    self.states[dseq_idx][dyel_idx+1],
+                    self.tanhs[dseq_idx][dyel_idx],
+                )
+                dxseq.append(dx)
+            dxs.append(dxseq)
+        param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
+        self.param_updates = {
+            "Wy": param_updates[0],
+            "Ws": param_updates[1],
+            "Wx": param_updates[2],
+            "by": param_updates[3],
+            "bs": param_updates[4],
+        }
+        return np.array(dxs)
+
+    def _update_params(self, lr):
+        self.cell._update_params(lr, self.param_updates)
 
 
 class RNNCell(Layer):
@@ -561,15 +635,6 @@ class RNNCell(Layer):
         param_updates = [
             x + y for x, y in zip(prev_param_updates, [dwy, dws, dwx, dby, dbs])
         ]
-        param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
-
-        self.param_updates = {
-            "Wy": param_updates[0],
-            "Ws": param_updates[1],
-            "Wx": param_updates[2],
-            "by": param_updates[3],
-            "bs": param_updates[4],
-        }
 
         return dx, ds_prev, param_updates
 
