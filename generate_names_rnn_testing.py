@@ -137,6 +137,7 @@ for epoch in range(EPOCHS):
                 states[dy_idx + 1],
                 tanhs[dy_idx],
             )
+            cell.state = np.zeros((units, 1))
         if namex_idx % 10 == 0:
             param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
             cell.params, _ = optim.optim(cell.params, param_updates)
@@ -151,6 +152,7 @@ for epoch in range(EPOCHS):
         for i in range(4):
             letter = None
 
+            cell.state = np.zeros((units, 1))
             letter_x = np.zeros((input_dims, 1))
             name = []
 
@@ -180,6 +182,7 @@ for i in range(500):
     letter = None
     indexes = list(index_to_chars.keys())
 
+    cell.state = np.zeros((units, 1))
     letter_x = np.zeros((input_dims, 1))
     name = []
 
