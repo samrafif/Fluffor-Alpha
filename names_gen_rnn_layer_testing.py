@@ -66,17 +66,17 @@ chars_to_index["<END>"] = 0
 
 indexes = list(index_to_chars.keys())
 
-names = [name.strip().lower() for name in names]
+names = [name.strip().lower() if len(name) < 10 else name.strip().lower()[:9] for name in names]
 random.shuffle(names)
 print(names[:5])
-tokens = [[None]+[chars_to_index[char] for char in name]+[0]*(15-len(name)) for name in names]
+tokens = [[None]+[chars_to_index[char] for char in name]+[0]*(9-len(name)) for name in names]
 one_hot_encoded = np.array([one_hot_encoding(tok, len(unique_chars)) for tok in tokens])
 batches = np.array(np.split(one_hot_encoded, 61))
-tokensy = [[chars_to_index[char] for char in name]+[0]*(16-len(name)) for name in names]
+tokensy = [[chars_to_index[char] for char in name]+[0]*(10-len(name)) for name in names]
 one_hot_encodedy = np.array([one_hot_encoding(tok, len(unique_chars)) for tok in tokensy], dtype=int)
 batchesy = np.array(np.split(one_hot_encodedy, 61))
 
-EPOCHS = 50
+EPOCHS = 100
 units = 27
 input_dims = len(unique_chars)
 rnn_layer0 = RNN(RNNCell(units, input_dims))
@@ -121,7 +121,7 @@ for i in range(EPOCHS):
         letter_x = np.zeros((1, 1, input_dims, 1))
         name = []
 
-        while letter != "<END>" and len(name) < 15:
+        while letter != "<END>" and len(name) < 10:
             x=rnn_layer0(letter_x)
 
             index = np.random.choice(indexes, p=x.ravel())
@@ -132,13 +132,14 @@ for i in range(EPOCHS):
             letter_x[0,0,index] = [1]
 
         print("".join(name))
+generated=[]
 for i in range(100):
     letter = None
 
     letter_x = np.zeros((1, 1, input_dims, 1))
     name = []
 
-    while letter != "<END>" and len(name) < 15:
+    while letter != "<END>" and len(name) < 10:
         x=rnn_layer0(letter_x)
 
         index = np.random.choice(indexes, p=x.ravel())
@@ -150,3 +151,8 @@ for i in range(100):
 
     name.pop(-1)
     print("".join(name)) if len(name) > 2 else None
+    generated.append("".join(name)) if len(name) > 2 else None
+print(f"Non-Empty names: {len(generated)} out of 100")
+lengths = [len(a) for a in generated]
+plt.hist(lengths)
+plt.show()
