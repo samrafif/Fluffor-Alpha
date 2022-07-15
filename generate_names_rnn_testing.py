@@ -152,7 +152,7 @@ for epoch in range(EPOCHS):
         for i in range(4):
             letter = None
 
-            cell.state = np.zeros((units, 1))
+            cell.reset_state()
             letter_x = np.zeros((input_dims, 1))
             name = []
 
@@ -182,7 +182,7 @@ for i in range(500):
     letter = None
     indexes = list(index_to_chars.keys())
 
-    cell.state = np.zeros((units, 1))
+    cell.reset_state()
     letter_x = np.zeros((input_dims, 1))
     name = []
 
