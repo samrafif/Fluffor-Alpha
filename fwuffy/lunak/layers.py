@@ -511,7 +511,7 @@ class RNN(Layer):
                 out_seq.append(out)
                 states.append(state)
                 activation_ins.append(act_in)
-            self.cell.state = np.zeros((self.cell.state_dims, 1))
+            self.cell.reset_state()
             self.out_sequences.append(Softmax()(out_seq))
             self.states.append(states)
             self.activation_ins.append(activation_ins)
@@ -652,6 +652,9 @@ class RNNCell(Layer):
             "bs": self.param_updates[4],
         }
         super()._update_params(lr)
+    
+    def reset_state(self):
+        self.state = np.zeros((self.state_dims, 1))
 
 
 class LSTMCell(Layer):
