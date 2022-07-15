@@ -478,7 +478,7 @@ class RNN(Layer):
         self.states = []
         
         self.out_sequences = []
-        self.tanhs = []
+        self.activation_ins = []
     
     def init_layer(self, idx):
         super().init_layer(idx)
@@ -488,25 +488,25 @@ class RNN(Layer):
         self.states = []
         
         self.out_sequences = []
-        self.tanhs = []
         self.cache["x"] = x
+        self.activation_ins = []
         
         #TODO: 😩 Please implement parallel mini-batching, and please reduce the number of loops
-        seq_len = x.shape[1]
         for seq in x:
             out_seq = []
             states = [self.cell.state]
+            activation_ins = []
             
-            tanhs = [Tanh() for el in range(self.in_dims[1])]
-            for el, tanh in zip(seq, tanhs):
-                out, state = self.cell(el, tanh)
+            for el in seq:
+                out, state, act_in = self.cell(el)
                 
                 out_seq.append(out)
                 states.append(state)
+                activation_ins.append(act_in)
                 self.state = state
             self.out_sequences.append(Softmax()(out_seq))
-            self.tanhs.append(tanhs)
             self.states.append(states)
+            self.activation_ins.append(activation_ins)
         
         return np.array(self.out_sequences)
     
@@ -525,7 +525,7 @@ class RNN(Layer):
                     self.cache["x"][dseq_idx][dyel_idx],
                     self.states[dseq_idx][dyel_idx],
                     self.states[dseq_idx][dyel_idx+1],
-                    self.tanhs[dseq_idx][dyel_idx],
+                    self.activation_ins[dseq_idx][dyel_idx],
                 )
                 dxseq.append(dx)
             dxs.append(dxseq)
@@ -581,7 +581,7 @@ class RNNCell(Layer):
         super().init_layer(idx)
         self._init_params(self.in_dims, self.state_dims, self.out_dims, self.activation)
 
-    def forwards(self, x, tanh):
+    def forwards(self, x):
         """
         Forward pass for a RNN cell.
 
@@ -602,22 +602,23 @@ class RNNCell(Layer):
         x = np.dot(self.params["Wx"], x)
         state = np.dot(self.params["Ws"], self.state) + self.params["bs"]
         tanh_in = x + state
-        new_state = tanh(tanh_in)
+        new_state = self.activation_f(tanh_in)
         self.state = new_state
 
         y = np.dot(self.params["Wy"], new_state) + self.params["by"]
 
-        return y, new_state
+        return y, new_state, tanh_in
 
     def backwards(
-        self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, tanh
+        self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, tanh_in
     ):
 
         dwy = np.dot(dy, curr_state.T)
         dby = dy
         dsa = np.dot(self.grads["dsa"].T, dy) + ds_prev
 
-        dtanh = tanh.backwards(dsa)
+        self.activation_f.local_grads(tanh_in)
+        dtanh = self.activation_f.backwards(dsa)
         dbs = dtanh
         dws = np.dot(dtanh, prev_state.T)
         dwx = np.dot(dtanh, inputs.T)
@@ -630,7 +631,7 @@ class RNNCell(Layer):
 
         return dx, ds_prev, param_updates
 
-    def local_grads(self, x, tanh):
+    def local_grads(self, x):
 
         dsa = self.params["Wy"]
         ds_p = self.params["Ws"]
@@ -656,5 +657,9 @@ class RNNCell(Layer):
 
 
 class LSTMCell(Layer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, units, in_dims=None):
+        super().__init__()
+        
+        self.in_dims = in_dims
+        self.out_dims = units
+        self.state_dims = units
