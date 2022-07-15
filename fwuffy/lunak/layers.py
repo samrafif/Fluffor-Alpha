@@ -529,18 +529,12 @@ class RNN(Layer):
                 )
                 dxseq.append(dx)
             dxs.append(dxseq)
-        param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
-        self.param_updates = {
-            "Wy": param_updates[0],
-            "Ws": param_updates[1],
-            "Wx": param_updates[2],
-            "by": param_updates[3],
-            "bs": param_updates[4],
-        }
+        self.param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
         return np.array(dxs)
 
     def _update_params(self, lr):
-        self.cell._update_params(lr, self.param_updates)
+        self.cell.param_updates = self.param_updates
+        self.cell._update_params(lr)
 
 
 class RNNCell(Layer):
@@ -639,21 +633,16 @@ class RNNCell(Layer):
 
         grads = {"dx": dx, "dsa": dsa, "dsp": ds_p}
         return grads
-
-    def _update_params(self, lr, param_updates=None):
-        """
-        Updates the trainable parameters using the corresponding global gradients
-        computed during the Backpropogation
-
-        Params:
-            lr: float. learning rate.
-            param_updates: dict | None, parameter gradients to override the internal gradients.
-        """
-        if param_updates is None:
-            return super()._update_params(lr)
-
-        for key, _ in self.params.items():
-            self.params[key] -= lr * param_updates[key]
+    
+    def _update_params(self, lr):
+        self.param_updates = {
+            "Wy": self.param_updates[0],
+            "Ws": self.param_updates[1],
+            "Wx": self.param_updates[2],
+            "by": self.param_updates[3],
+            "bs": self.param_updates[4],
+        }
+        super()._update_params(lr)
 
 
 class LSTMCell(Layer):
