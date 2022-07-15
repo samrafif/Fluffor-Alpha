@@ -86,8 +86,6 @@ linear0.init_layer(0)
 rnn_layer0.in_dims = batches.shape[1:]
 rnn_layer0.init_layer(0)
 
-# NOTE: for some odd reason, the net sometimes just outputs a EOS character. maybe... find out why, but at this point
-# I do not care anymore, because it still kinda works, and i am scared to change the code.
 for i in range(EPOCHS):
     
     x=rnn_layer0(batches[0])
