@@ -511,7 +511,7 @@ class RNN(Layer):
                 out_seq.append(out)
                 states.append(state)
                 activation_ins.append(act_in)
-                self.state = state
+            self.cell.state = np.zeros((self.cell.state_dims, 1))
             self.out_sequences.append(Softmax()(out_seq))
             self.states.append(states)
             self.activation_ins.append(activation_ins)
@@ -522,7 +522,7 @@ class RNN(Layer):
         dxs = []
         param_updates = [0, 0, 0, 0, 0]
         for dseq_idx, dseq in enumerate(dy):
-            ds_prev = np.zeros_like(self.state)
+            ds_prev = np.zeros((self.cell.state_dims, 1))
             dxseq = []
             
             for dyel_idx, dyel in reversed(list(enumerate(dseq))):
