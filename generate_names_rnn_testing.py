@@ -73,7 +73,7 @@ names = [name.strip().lower() for name in names]
 random.shuffle(names)
 print(names[:5])
 
-EPOCHS = 10
+EPOCHS = 15
 units = len(unique_chars)
 input_dims = len(unique_chars)
 
@@ -97,19 +97,20 @@ for epoch in range(EPOCHS):
         # transform the input X and label Y into one hot enconding.
         X = one_hot_encoding(X, input_dims)
         Y = np.array(one_hot_encoding(Y_c, units), dtype=int)
-        tanhs = [Tanh() for c in X]
+        tanhs = []
         softmaxe = Softmax()
         preds = []
 
         state = np.zeros((units, 1))
         states = [state]
 
-        for char, tanh in zip(X, tanhs):
-            y, state = cell(char, state, tanh)
+        for char in X:
+            y, state, act_in = cell(char)
             # print(y_probs)
 
             states.append(state)
             preds.append(y)
+            tanhs.append(act_in)
 
         preds = np.array(preds)
         preds = softmaxe(preds)
@@ -153,12 +154,8 @@ for epoch in range(EPOCHS):
             letter_x = np.zeros((input_dims, 1))
             name = []
 
-            # similar to forward propagation.
-            layer_tanh = Tanh()
-            hidden = np.zeros((units, 1))
-
             while letter != "<END>" and len(name) < 15:
-                y, hidden = cell(letter_x, hidden, layer_tanh)
+                y, hidden, _ = cell(letter_x)
                 y_pred = softmaxe(y.reshape(1, y.shape[0])).reshape(
                     (y.shape[0], y.shape[1])
                 )
@@ -178,19 +175,16 @@ from matplotlib import pyplot as plt
 plt.plot(loss_history)
 plt.show()
 
-for i in range(100):
+generated = []
+for i in range(500):
     letter = None
     indexes = list(index_to_chars.keys())
 
     letter_x = np.zeros((input_dims, 1))
     name = []
 
-    # similar to forward propagation.
-    layer_tanh = Tanh()
-    hidden = np.zeros((units, 1))
-
     while letter != "<END>" and len(name) < 15:
-        y, hidden = cell(letter_x, hidden, layer_tanh)
+        y, hidden, _ = cell(letter_x)
         y_pred = softmaxe(y.reshape(1, y.shape[0])).reshape(
             (y.shape[0], y.shape[1])
         )
@@ -204,7 +198,9 @@ for i in range(100):
         letter_x[index] = 1
 
     name.pop(-1)
-    print("".join(name))
+    print("".join(name)) if len(name) > 3 else None
+    generated.append("".join(name)) if len(name) > 3 else None
+print(f"Non-Empty names: {len(generated)} out of 500")
 
 if save:
     import json
