@@ -475,7 +475,6 @@ class RNN(Layer):
         self.return_state = return_state
         self.reverse = reverse
         
-        self.state = np.zeros((self.cell.state_dims, 1))
         self.states = []
         
         self.out_sequences = []
@@ -496,11 +495,11 @@ class RNN(Layer):
         seq_len = x.shape[1]
         for seq in x:
             out_seq = []
-            states = [self.state]
+            states = [self.cell.state]
             
             tanhs = [Tanh() for el in range(self.in_dims[1])]
             for el, tanh in zip(seq, tanhs):
-                out, state = self.cell(el, self.state, tanh)
+                out, state = self.cell(el, tanh)
                 
                 out_seq.append(out)
                 states.append(state)
@@ -557,6 +556,7 @@ class RNNCell(Layer):
         self.state_dims = units
         self.activation = activation
         self.activation_f = activations_dict[activation]()
+        self.state = np.zeros((self.state_dims, 1))
 
     def _init_params(self, in_dims, state_dims, out_dims, activation):
 
@@ -581,7 +581,7 @@ class RNNCell(Layer):
         super().init_layer(idx)
         self._init_params(self.in_dims, self.state_dims, self.out_dims, self.activation)
 
-    def forwards(self, x, state, tanh):
+    def forwards(self, x, tanh):
         """
         Forward pass for a RNN cell.
 
@@ -600,9 +600,10 @@ class RNNCell(Layer):
                 the new computed state.
         """
         x = np.dot(self.params["Wx"], x)
-        state = np.dot(self.params["Ws"], state) + self.params["bs"]
+        state = np.dot(self.params["Ws"], self.state) + self.params["bs"]
         tanh_in = x + state
         new_state = tanh(tanh_in)
+        self.state = new_state
 
         y = np.dot(self.params["Wy"], new_state) + self.params["by"]
 
@@ -629,7 +630,7 @@ class RNNCell(Layer):
 
         return dx, ds_prev, param_updates
 
-    def local_grads(self, x, state, tanh):
+    def local_grads(self, x, tanh):
 
         dsa = self.params["Wy"]
         ds_p = self.params["Ws"]
