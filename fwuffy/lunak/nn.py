@@ -90,6 +90,7 @@ class Sequential(Model):
             [
                 np.prod(layer.params.get("W", null).shape)
                 + np.prod(layer.params.get("b", null).shape)
+                if layer.trainable else 0
                 for layer in self.layers
             ]
         )

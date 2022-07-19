@@ -14,6 +14,7 @@ class Layer(Function):
 
         self.in_dims: int
         self.out_dims: int
+        self.trainable = False
         self.name = self.__class__.__name__.lower()
         self.params = {}
         self.param_updates = {}
@@ -34,6 +35,8 @@ class Layer(Function):
         Params:
             lr: float. learning rate.
         """
+        if not self.trainable: return
+        
         for key, _ in self.params.items():
             self.params[key] -= lr * self.param_updates[key]
 
@@ -84,6 +87,7 @@ class PRelu(Layer):
         super().__init__()
         
         self.init = init
+        self.trainable = True
 
     def _init_params(self, init):
 
@@ -120,6 +124,7 @@ class Linear(Layer):
 
         self.in_dims = in_dims
         self.out_dims = out_dims
+        self.trainable = True
         self.activation = activation
         self.activation_f = activations_dict[activation]() if activation else None
 
@@ -288,6 +293,8 @@ class BatchNorm2D(Layer):
     def __init__(self, eps=1e-5):
         super().__init__()
         self.epsilon = eps
+        
+        self.trainable = True
     
     def _init_params(self, n_channels):
         self.params["gm"] = np.ones((1, n_channels, 1, 1))
@@ -366,6 +373,7 @@ class Conv2D(Layer):
             if isinstance(stride, tuple)
             else (stride, stride)
         )
+        self.trainable = True
         self.padding = padding
         self.activation = activation
         self.activation_f = activations_dict[activation]() if activation else None
@@ -481,6 +489,7 @@ class RNNCell(Layer):
         self.in_dims = in_dims
         self.out_dims = units
         self.state_dims = units
+        self.trainable = True
         self.activation = activation
         self.activation_f = activations_dict[activation]()
 
