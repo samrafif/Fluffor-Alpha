@@ -7,6 +7,13 @@ from .activations import Softmax, Tanh, activations_dict, leaky_relu, leaky_relu
 from .base import Function
 from .utils import zero_pad
 
+scales = {
+    "relu": lambda in_dims: math.sqrt(2.0 / in_dims),
+    "sigmoid": lambda in_dims: 1 / math.sqrt(in_dims),
+    "tanh": lambda in_dims: 1 / math.sqrt(in_dims),
+    "softmax": lambda in_dims: 1 / math.sqrt(in_dims),
+}
+
 
 class Layer(Function):
     def __init__(self, *args, **kwargs):
@@ -130,11 +137,7 @@ class Linear(Layer):
 
     def _init_params(self, in_dims, out_dims, activation):
 
-        if activation in ("sigmoid", "tanh", "softmax"):
-            scale = 1 / math.sqrt(in_dims)
-
-        if activation == "relu" or activation is None:
-            scale = math.sqrt(2.0 / in_dims)
+        scale = scales[activation](in_dims)
 
         self.params["W"] = scale * np.random.randn(in_dims, out_dims)
         self.params["b"] = np.zeros((1, out_dims))
@@ -371,11 +374,7 @@ class Conv2D(Layer):
         self.activation_f = activations_dict[activation]() if activation else None
     
     def _init_params(self, in_channels, out_channels, kernel_size, activation):
-        if activation in ("sigmoid", "tanh", "softmax"):
-            scale = 1 / math.sqrt(in_channels * kernel_size[0] * kernel_size[1])
-
-        if activation == "relu" or activation is None:
-            scale = math.sqrt(2.0 / in_channels * kernel_size[0] * kernel_size[1])
+        scale = scales[activation](in_channels * kernel_size[0] * kernel_size[1])
         
         self.params["W"] = scale * np.random.randn(out_channels, in_channels, *kernel_size)
         
@@ -482,6 +481,8 @@ class RNN(Layer):
     
     def init_layer(self, idx):
         super().init_layer(idx)
+        self.cell.in_dims = self.in_dims
+        self.out_dims = self.in_dims
         self.cell.init_layer(idx)
     
     def forwards(self, x):
@@ -554,11 +555,7 @@ class RNNCell(Layer):
 
     def _init_params(self, in_dims, state_dims, out_dims, activation):
 
-        if activation in ("sigmoid", "tanh", "softmax"):
-            scale = 1 / math.sqrt(in_dims)
-
-        if activation == "relu" or activation is None:
-            scale = math.sqrt(2.0 / in_dims)
+        scale = scales[activation](in_dims)
 
         # Input params
         self.params["Wx"] = scale * np.random.randn(state_dims, in_dims)
