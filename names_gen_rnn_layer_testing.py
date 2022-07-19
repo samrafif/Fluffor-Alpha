@@ -76,7 +76,7 @@ tokensy = [[chars_to_index[char] for char in name]+[0]*(10-len(name)) for name i
 one_hot_encodedy = np.array([one_hot_encoding(tok, len(unique_chars)) for tok in tokensy], dtype=int)
 batchesy = np.array(np.split(one_hot_encodedy, 61))
 
-EPOCHS = 100
+EPOCHS = 10
 units = 27
 input_dims = len(unique_chars)
 rnn_layer0 = RNN(RNNCell(units, input_dims))
@@ -88,31 +88,31 @@ rnn_layer0.init_layer(0)
 
 for i in range(EPOCHS):
     
-    x=rnn_layer0(batches[0])
-    #x=linear0(x).reshape((-1, 16, 27, 1))
-    
-    losses = [[CrossEntropyLoss() for el in seq] for seq in x]
-    loss_v = 0
-    for seq_idx, seq in enumerate(x):
-        seqloss = 0
-        for el_idx, el in enumerate(seq):
-            seqloss += losses[seq_idx][el_idx].forward(el, batchesy[0][seq_idx][el_idx])
-        loss_v += seqloss / len(seq)
+    for batch, batchy in zip(track(batches), batchesy):
+        x=rnn_layer0(batch)
+        #x=linear0(x).reshape((-1, 16, 27, 1))
+        
+        losses = [[CrossEntropyLoss() for el in seq] for seq in x]
+        loss_v = 0
+        for seq_idx, seq in enumerate(x):
+            seqloss = 0
+            for el_idx, el in enumerate(seq):
+                seqloss += losses[seq_idx][el_idx].forward(el, batchy[seq_idx][el_idx])
+            loss_v += seqloss / len(seq)
+        
+        dys = []
+        for seq_idx, seq in enumerate(x):
+            seqdy = []
+            for el_idx, el in enumerate(seq):
+                seqdy.append(losses[seq_idx][el_idx].backward())
+            dys.append(seqdy)
+        dy = np.array(dys)
+        
+        # dy = linear0.backwards(dy).reshape((-1, 16, 27, 1))
+        dy = rnn_layer0.backwards(dy)
+        rnn_layer0._update_params(0.1)
+        # linear0._update_params(0.1)
     print(loss_v/len(x))
-    
-    dys = []
-    for seq_idx, seq in enumerate(x):
-        seqdy = []
-        for el_idx, el in enumerate(seq):
-            seqdy.append(losses[seq_idx][el_idx].backward())
-        dys.append(seqdy)
-    dy = np.array(dys)
-    
-    # dy = linear0.backwards(dy).reshape((-1, 16, 27, 1))
-    dy = rnn_layer0.backwards(dy)
-    rnn_layer0._update_params(0.1)
-    # linear0._update_params(0.1)
-    
     for i in range(1):
         letter = None
 
