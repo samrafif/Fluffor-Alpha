@@ -94,6 +94,14 @@ class Sequential(Model):
                 for layer in self.layers
             ]
         )
+        untrainable_params = sum(
+            [
+                np.prod(layer.params.get("W", null).shape)
+                + np.prod(layer.params.get("b", null).shape)
+                if not layer.trainable else 0
+                for layer in self.layers
+            ]
+        )
 
         print(f'Model: "{self.__class__.__name__.lower()}"')
         print(
@@ -104,6 +112,7 @@ class Sequential(Model):
             )
         )
         print(f"Trainable params: {trainable_params}")
+        print(f"Non trainable params: {untrainable_params}")
 
     def save(self, path):
         saved_model = {}
