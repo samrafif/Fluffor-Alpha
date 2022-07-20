@@ -481,6 +481,7 @@ class RNN(Layer):
         self.return_sequences = return_sequences
         self.return_state = return_state
         self.reverse = reverse
+        self.trainable = True
         
         self.states = []
         
@@ -489,7 +490,7 @@ class RNN(Layer):
     
     def init_layer(self, idx):
         super().init_layer(idx)
-        self.cell.in_dims = self.in_dims
+        self.cell.in_dims = self.in_dims[-2]
         self.out_dims = self.in_dims
         self.cell.init_layer(idx)
     
@@ -655,9 +656,62 @@ class RNNCell(Layer):
 
 
 class LSTMCell(Layer):
-    def __init__(self, units, in_dims=None):
+    def __init__(self, units, in_dims=None, activation="tanh", recurrent_activation="sigmoid"):
         super().__init__()
         
         self.in_dims = in_dims
-        self.out_dims = units
+        self.concat_dim = in_dims[-2] + units
         self.state_dims = units
+        self.activation = activation
+        self.recurrent_activation = recurrent_activation
+        self.trainable = True
+        
+        self.activation_f = activations_dict.get(activation)
+        self.recurrent_activation_f = activations_dict.get(recurrent_activation)
+        
+        self.state_c = np.zeros((self.state_dims, 1))
+        self.state_h = np.zeros((self.state_dims, 1))
+        self.state = (self.state_c, self.state_h)
+        self.inter_states = ()
+    
+    def _init_params(self, in_dims, concat_dims, state_dims, activation, recurrent_activation):
+        rscale = scales[recurrent_activation](concat_dims)
+        scale = scales[activation](concat_dims)
+        
+        self.params["Wf"] = np.random.randn((state_dims, concat_dims)) * rscale
+        self.params["Wc"] = np.random.randn((state_dims, concat_dims)) * scale
+        self.params["Wi"] = np.random.randn((state_dims, concat_dims)) * rscale
+        self.params["Wo"] = np.random.randn((state_dims, concat_dims)) * rscale
+        
+        self.params["bg"] = np.zeros(state_dims)
+        self.params["bc"] = np.zeros(state_dims)
+        self.params["bi"] = np.zeros(state_dims)
+        self.params["bo"] = np.zeros(state_dims)
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        
+        self.out_dims = self.in_dims
+    
+    def forwards(self, x):
+        xcon = x.hstack((x, self.state_h))
+        
+        sf = self.recurrent_activation_f(np.dot(self.params["Wf"], xcon) + self.params["bg"])
+        sc = self.activation_f(np.dot(self.params["Wc"], xcon) + self.params["bc"])
+        si = self.recurrent_activation_f(np.dot(self.params["Wi"], xcon) + self.params["bi"])
+        so = self.recurrent_activation_f(np.dot(self.params["Wo"], xcon) + self.params["bo"])
+        
+        sc = self.state_c * sf + (self.state_c * si)
+        sh = self.activation_f(sc) * so
+        
+        self.state_c, self.state_h = sc, sh
+        self.state = (sc, sh)
+        self.inter_states = (sf, sc, si, so)
+        
+        return sh, self.state, self.inter_states
+    
+    def backwards(self, dy):
+        return
+    
+    def local_grads(self, x):
+        return
