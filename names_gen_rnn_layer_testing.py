@@ -79,7 +79,7 @@ batchesy = np.array(np.split(one_hot_encodedy, 61))
 EPOCHS = 10
 units = 27
 input_dims = len(unique_chars)
-rnn_layer0 = RNN(RNNCell(units, input_dims))
+rnn_layer0 = RNN(RNNCell(units))
 linear0 = Linear(27, activation="softmax")
 linear0.in_dims = 27
 linear0.init_layer(0)
