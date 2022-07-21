@@ -12,6 +12,7 @@ class Sigmoid(Function):
     def local_grads(self, x):
         dx = sigmoid_prime(x)
         grads = {"X": dx}
+        self.grads = grads
         return grads
 
 
@@ -25,6 +26,7 @@ class ReLU(Function):
     def local_grads(self, x):
         dx = relu_prime(x)
         grads = {"X": dx}
+        self.grads = grads
         return grads
 
 
@@ -38,6 +40,7 @@ class Tanh(Function):
     def local_grads(self, x):
         dx = tanh_prime(x)
         grads = {"X": dx}
+        self.grads = grads
         return grads
 
 
@@ -68,7 +71,9 @@ class Softmax(Function):
             grad.append(grad_row)
 
         grad = np.array(grad)
-        return {"X": grad}
+        grads = {"X": grad}
+        self.grads = grads
+        return grads
 
 
 activations_dict = {
