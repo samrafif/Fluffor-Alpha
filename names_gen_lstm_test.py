@@ -76,7 +76,7 @@ tokensy = [[chars_to_index[char] for char in name]+[0]*(10-len(name)) for name i
 one_hot_encodedy = np.array([one_hot_encoding(tok, len(unique_chars)) for tok in tokensy], dtype=int)
 batchesy = np.array(np.split(one_hot_encodedy, 61))
 
-EPOCHS = 10
+EPOCHS = 5
 units = 27
 input_dims = len(unique_chars)
 rnn_layer0 = RNN(LSTMCell(units))
