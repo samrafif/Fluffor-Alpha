@@ -539,7 +539,7 @@ class RNN(Layer):
                 )
                 dxseq.append(dx)
             dxs.append(dxseq)
-        self.param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
+        self.param_updates = [np.clip(grad/len(dy), -1, 1, out=grad) for grad in param_updates]
         return np.array(dxs)
 
     def _update_params(self, lr):
