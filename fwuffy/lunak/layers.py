@@ -761,7 +761,7 @@ class LSTMCell(Layer):
         dxcon += np.dot(self.params["Wo"].T, do_in)
         
         dsc_next = dsc * i
-        dsh_next = self.activation_f.local_grads(dxcon[self.in_dims:])["X"]
+        dsh_next = dxcon[self.in_dims:]
         
         dx = dxcon[:self.in_dims]
         
