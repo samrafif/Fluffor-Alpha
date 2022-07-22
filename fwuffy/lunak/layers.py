@@ -729,7 +729,7 @@ class LSTMCell(Layer):
         sc, sh = curr_state
         f, c, i, o, xcon = act_ins
         dsc_p, dsh_p = ds_prev
-        dsh_p *= dy
+        dsh_p += dy
         
         dsc = o * dsh_p + dsc_p
         do = sc * dsh_p
