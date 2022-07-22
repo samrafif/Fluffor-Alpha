@@ -522,9 +522,9 @@ class RNN(Layer):
     
     def backwards(self, dy):
         dxs = []
-        param_updates = [0, 0, 0, 0, 0]
+        param_updates = [0 for _ in range(self.cell.param_len)]
         for dseq_idx, dseq in enumerate(dy):
-            ds_prev = np.zeros((self.cell.state_dims, 1))
+            ds_prev = self.cell.state_delta()
             dxseq = []
             
             for dyel_idx, dyel in reversed(list(enumerate(dseq))):
@@ -562,6 +562,8 @@ class RNNCell(Layer):
         self.activation = activation
         self.activation_f = activations_dict[activation]()
         self.state = np.zeros((self.state_dims, 1))
+        
+        self.param_len = 5
 
     def _init_params(self, in_dims, state_dims, out_dims, activation):
 
@@ -653,65 +655,150 @@ class RNNCell(Layer):
     
     def reset_state(self):
         self.state = np.zeros((self.state_dims, 1))
+    
+    def state_delta(self):
+        return np.zeros((self.state_dims, 1))
 
 
+# FIXME: The loss drops, but it outputs random chars when in names_gen testing, please find out why this happens ASAP
 class LSTMCell(Layer):
     def __init__(self, units, in_dims=None, activation="tanh", recurrent_activation="sigmoid"):
         super().__init__()
         
         self.in_dims = in_dims
-        self.concat_dim = in_dims[-2] + units
         self.state_dims = units
         self.activation = activation
         self.recurrent_activation = recurrent_activation
         self.trainable = True
         
-        self.activation_f = activations_dict.get(activation)
-        self.recurrent_activation_f = activations_dict.get(recurrent_activation)
+        self.activation_f = activations_dict.get(activation)()
+        self.recurrent_activation_f = activations_dict.get(recurrent_activation)()
         
         self.state_c = np.zeros((self.state_dims, 1))
         self.state_h = np.zeros((self.state_dims, 1))
         self.state = (self.state_c, self.state_h)
         self.inter_states = ()
+        
+        self.param_len = 8
     
     def _init_params(self, in_dims, concat_dims, state_dims, activation, recurrent_activation):
         rscale = scales[recurrent_activation](concat_dims)
         scale = scales[activation](concat_dims)
         
-        self.params["Wf"] = np.random.randn((state_dims, concat_dims)) * rscale
-        self.params["Wc"] = np.random.randn((state_dims, concat_dims)) * scale
-        self.params["Wi"] = np.random.randn((state_dims, concat_dims)) * rscale
-        self.params["Wo"] = np.random.randn((state_dims, concat_dims)) * rscale
+        self.params["Wf"] = np.random.randn(state_dims, concat_dims) * rscale
+        self.params["Wc"] = np.random.randn(state_dims, concat_dims) * scale
+        self.params["Wi"] = np.random.randn(state_dims, concat_dims) * rscale
+        self.params["Wo"] = np.random.randn(state_dims, concat_dims) * rscale
         
-        self.params["bg"] = np.zeros(state_dims)
-        self.params["bc"] = np.zeros(state_dims)
-        self.params["bi"] = np.zeros(state_dims)
-        self.params["bo"] = np.zeros(state_dims)
+        self.params["bg"] = np.zeros((state_dims, 1))
+        self.params["bc"] = np.zeros((state_dims, 1))
+        self.params["bi"] = np.zeros((state_dims, 1))
+        self.params["bo"] = np.zeros((state_dims, 1))
     
     def init_layer(self, idx):
         super().init_layer(idx)
         
         self.out_dims = self.in_dims
+        self.concat_dims = self.in_dims + self.state_dims
+        
+        self._init_params(self.in_dims, self.concat_dims, self.state_dims, self.activation, self.recurrent_activation)
     
     def forwards(self, x):
-        xcon = x.hstack((x, self.state_h))
+        xcon = np.hstack((x.reshape(self.in_dims), self.state_h.reshape(self.state_dims))).reshape((self.concat_dims, 1))
         
-        sf = self.recurrent_activation_f(np.dot(self.params["Wf"], xcon) + self.params["bg"])
-        sc = self.activation_f(np.dot(self.params["Wc"], xcon) + self.params["bc"])
-        si = self.recurrent_activation_f(np.dot(self.params["Wi"], xcon) + self.params["bi"])
-        so = self.recurrent_activation_f(np.dot(self.params["Wo"], xcon) + self.params["bo"])
+        a_sf = np.dot(self.params["Wf"], xcon) + self.params["bg"]
+        sf = self.recurrent_activation_f(a_sf)
+        a_sc = np.dot(self.params["Wc"], xcon) + self.params["bc"]
+        sc = self.activation_f(a_sc)
+        a_si = np.dot(self.params["Wi"], xcon) + self.params["bi"]
+        si = self.recurrent_activation_f(a_si)
+        a_so = np.dot(self.params["Wo"], xcon) + self.params["bo"]
+        so = self.recurrent_activation_f(a_so)
         
-        sc = self.state_c * sf + (self.state_c * si)
+        sc = sc * sf + (self.state_c * si)
         sh = self.activation_f(sc) * so
         
         self.state_c, self.state_h = sc, sh
         self.state = (sc, sh)
-        self.inter_states = (sf, sc, si, so)
+        self.inter_states = (a_sf, a_sc, a_si, a_so, xcon)
         
         return sh, self.state, self.inter_states
     
-    def backwards(self, dy):
-        return
+    def backwards(self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, act_ins):
+        sc_p, sh_p = prev_state
+        sc, sh = curr_state
+        f, c, i, o, xcon = act_ins
+        dsc_p, dsh_p = ds_prev
+        dsh_p *= dy
+        
+        dsc = o * dsh_p + dsc_p
+        do = sc * dsh_p
+        df = c * dsc
+        dc = f * dsc
+        di = sc_p * dsc
+        
+        df_in = self.recurrent_activation_f.local_grads(f)["X"] * df
+        di_in = self.recurrent_activation_f.local_grads(i)["X"] * di
+        do_in = self.recurrent_activation_f.local_grads(o)["X"] * do
+        dc_in = self.activation_f.local_grads(c)["X"] * dc
+        
+        dWf = np.outer(df_in, xcon)
+        dWc = np.outer(dc_in, xcon)
+        dWi = np.outer(di_in, xcon)
+        dWo = np.outer(do_in, xcon)
+        dbf = df_in
+        dbc = dc_in
+        dbi = di_in
+        dbo = do_in
+        
+        param_updates = [dWf, dWc, dWi, dWo, dbf, dbc, dbi, dbo]
+        param_updates = [a + b for a, b in zip(prev_param_updates, param_updates)]
+        
+        dxcon = np.zeros_like(xcon)
+        dxcon += np.dot(self.params["Wf"].T, df_in)
+        dxcon += np.dot(self.params["Wc"].T, dc_in)
+        dxcon += np.dot(self.params["Wi"].T, di_in)
+        dxcon += np.dot(self.params["Wo"].T, do_in)
+        
+        dsc_next = dsc * i
+        dsh_next = self.activation_f.local_grads(dxcon[self.in_dims:])["X"]
+        
+        dx = dxcon[:self.in_dims]
+        
+        ds_next = (dsc_next, dsh_next)
+        
+        return dx, ds_next, param_updates
     
     def local_grads(self, x):
-        return
+        dxcf = self.params["Wf"]
+        dxcc = self.params["Wc"]
+        dxci = self.params["Wi"]
+        dxco = self.params["Wo"]
+        
+        grads = {"dxcf": dxcf, "dxcc": dxcc, "dxci": dxci, "dxco": dxco}
+        return grads
+    
+    def _update_params(self, lr):
+        self.param_updates = {
+            "Wf": self.param_updates[0],
+            "Wc": self.param_updates[1],
+            "Wi": self.param_updates[2],
+            "Wo": self.param_updates[3],
+            "bg": self.param_updates[4],
+            "bc": self.param_updates[5],
+            "bi": self.param_updates[6],
+            "bo": self.param_updates[7]
+        }
+        super()._update_params(lr)
+    
+    def reset_state(self):
+        self.state_c = np.zeros((self.state_dims, 1))
+        self.state_h = np.zeros((self.state_dims, 1))
+        self.state = (self.state_c, self.state_h)
+        self.inter_states = ()
+    
+    def state_delta(self):
+        dstate_c = np.zeros((self.state_dims, 1))
+        dstate_h = np.zeros((self.state_dims, 1))
+        dstate = (dstate_c, dstate_h)
+        return dstate
