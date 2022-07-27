@@ -802,3 +802,60 @@ class LSTMCell(Layer):
         dstate_h = np.zeros((self.state_dims, 1))
         dstate = (dstate_c, dstate_h)
         return dstate
+
+class Embedding(Layer):
+    def __init__(self, embedding_dim, vocab_size):
+        super().__init__()
+        
+        self.embedding_dim = embedding_dim
+        self.vocab_size = vocab_size
+        
+        self.softmax = Softmax()
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        
+        self.out_dims = list(self.in_dims)
+        self.out_dims[-2] = self.embedding_dim
+        self.out_dims = tuple(self.out_dims)
+        
+        self._init_params(self.embedding_dim, self.vocab_size)
+    
+    def _init_params(self, embedding_dim, vocab_size):
+        self.params["We"] = np.random.uniform(-1, 1, (embedding_dim, vocab_size))
+    
+    def forwards(self, x):
+        self.cache["X"] = x
+        
+        embed = []
+        for seq in x:
+            emb_seq = []
+            for el in seq:
+                emb = np.dot(self.params["We"], el)
+
+                emb_seq.append(emb)
+            embed.append(emb_seq)
+        
+        return np.array(embed)
+    
+    def local_grads(self, x):
+        dxe = self.params["We"]
+        
+        grads = {"dxe": dxe}
+        return grads
+    
+    def backwards(self, dy):
+        dx = []
+        dWe = 0
+        for seq, dseq, dws in zip(dy, self.grads["dxe"], self.cache["X"]):
+            dx_seq = []
+            for el, delel, dw in zip(seq, dseq, dws):
+                dWe += np.dot(el, dw.T)
+                
+                eldx = np.dot(delel.T, el)
+                dx_seq.append(eldx)
+            dx.append(dx_seq)
+            dWe = dWe / len(seq)
+        
+        self.param_updates["We"] = dWe
+        return dx
