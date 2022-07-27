@@ -6,7 +6,7 @@ import random
 from rich.progress import track
 
 from fwuffy.lunak.utils import one_hot_encoding
-from fwuffy.lunak.layers import RNN, LSTMCell, Linear
+from fwuffy.lunak.layers import RNN, Embedding, LSTMCell, Linear
 from fwuffy.lunak.activations import Softmax, Tanh
 from SGD import SGD
 
@@ -79,17 +79,22 @@ batchesy = np.array(np.split(one_hot_encodedy, 61))
 EPOCHS = 20
 units = 27
 input_dims = len(unique_chars)
+embedding_layer0 = Embedding(32, 27)
+embedding_layer0.in_dims = batches.shape[1:]
+embedding_layer0.init_layer(0)
 rnn_layer0 = RNN(LSTMCell(units))
 linear0 = Linear(27, activation="softmax")
 linear0.in_dims = 27
 linear0.init_layer(0)
-rnn_layer0.in_dims = batches.shape[1:]
+print(embedding_layer0.out_dims)
+rnn_layer0.in_dims = embedding_layer0.out_dims
 rnn_layer0.init_layer(0)
 
 for i in range(EPOCHS):
     
     for batch, batchy in zip(track(batches), batchesy):
-        x=rnn_layer0(batch)
+        x=embedding_layer0(batch)
+        x=rnn_layer0(x)
         #x=linear0(x).reshape((-1, 16, 27, 1))
         
         losses = [[CrossEntropyLoss() for el in seq] for seq in x]
@@ -110,6 +115,8 @@ for i in range(EPOCHS):
         
         # dy = linear0.backwards(dy).reshape((-1, 16, 27, 1))
         dy = rnn_layer0.backwards(dy)
+        dy = embedding_layer0.backwards(dy)
+        embedding_layer0._update_params(0.1)
         rnn_layer0._update_params(0.1)
         # linear0._update_params(0.1)
     print(loss_v/len(x))
@@ -120,7 +127,8 @@ for i in range(EPOCHS):
         name = []
 
         while letter != "<END>" and len(name) < 10:
-            x=rnn_layer0(letter_x)
+            x=embedding_layer0(letter_x)
+            x=rnn_layer0(x)
 
             index = np.random.choice(indexes, p=x.ravel())
             letter = index_to_chars[index]
@@ -138,7 +146,8 @@ for i in range(100):
     name = []
 
     while letter != "<END>" and len(name) < 10:
-        x=rnn_layer0(letter_x)
+        x=embedding_layer0(letter_x)
+        x=rnn_layer0(x)
 
         index = np.random.choice(indexes, p=x.ravel())
         letter = index_to_chars[index]
