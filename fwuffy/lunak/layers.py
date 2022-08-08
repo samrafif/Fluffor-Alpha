@@ -3,9 +3,16 @@ import numpy as np
 import math
 from typing import Optional
 
-from .activations import activations_dict, leaky_relu, leaky_relu_prime
+from .activations import Softmax, Tanh, activations_dict, leaky_relu, leaky_relu_prime
 from .base import Function
 from .utils import zero_pad
+
+scales = {
+    "relu": lambda in_dims: math.sqrt(2.0 / in_dims),
+    "sigmoid": lambda in_dims: 1 / math.sqrt(in_dims),
+    "tanh": lambda in_dims: 1 / math.sqrt(in_dims),
+    "softmax": lambda in_dims: 1 / math.sqrt(in_dims),
+}
 
 
 class Layer(Function):
@@ -25,7 +32,7 @@ class Layer(Function):
     def init_layer(self, idx, **kwargs):
         self.name += str(idx)
         self.name += f" ({self.__class__.__name__})"
-        self.out_dims = self.in_dims
+        self.out_dims = self.in_dims if getattr(self, "out_dims", None) is None else self.out_dims
 
     def _update_params(self, lr):
         """
@@ -135,11 +142,7 @@ class Linear(Layer):
 
     def _init_params(self, in_dims, out_dims, activation):
 
-        if activation in ("sigmoid", "tanh", "softmax"):
-            scale = 1 / math.sqrt(in_dims)
-
-        if activation == "relu" or activation is None:
-            scale = math.sqrt(2.0 / in_dims)
+        scale = scales[activation](in_dims)
 
         self.params["W"] = scale * np.random.randn(in_dims, out_dims)
         self.params["b"] = np.zeros((1, out_dims))
@@ -379,11 +382,7 @@ class Conv2D(Layer):
         self.activation_f = activations_dict[activation]() if activation else None
     
     def _init_params(self, in_channels, out_channels, kernel_size, activation):
-        if activation in ("sigmoid", "tanh", "softmax"):
-            scale = 1 / math.sqrt(in_channels * kernel_size[0] * kernel_size[1])
-
-        if activation == "relu" or activation is None:
-            scale = math.sqrt(2.0 / in_channels * kernel_size[0] * kernel_size[1])
+        scale = scales[activation](in_channels * kernel_size[0] * kernel_size[1])
         
         self.params["W"] = scale * np.random.randn(out_channels, in_channels, *kernel_size)
         
@@ -420,6 +419,7 @@ class Conv2D(Layer):
         n, c, h, w = x.shape
         kh, kw = self.kernel_size
         
+        #TODO: Please vectorize.
         out_shape = (n, self.out_channels, 1 + (h-kh) // self.stride[0], 1 + (w-kw) // self.stride[1])
         y = np.zeros(out_shape)
         for b in range(n):
@@ -473,9 +473,80 @@ class Conv2D(Layer):
 # TODO: Write RNN class wrapper, to automate reccurent loop
 class RNN(Layer):
     def __init__(
-        self, cell, return_sequences=False, return_state=False, reversed=False
+        self, cell, return_sequences=False, return_state=False, reverse=False
     ):
         super().__init__()
+        
+        self.cell = cell
+        self.return_sequences = return_sequences
+        self.return_state = return_state
+        self.reverse = reverse
+        self.trainable = True
+        
+        self.states = []
+        
+        self.out_sequences = []
+        self.activation_ins = []
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        self.cell.in_dims = self.in_dims[-2]
+        self.cell.init_layer(idx)
+        self.out_dims = self.cell.out_dims
+    
+    def forwards(self, x):
+        self.states = []
+        
+        self.out_sequences = []
+        self.cache["x"] = x
+        self.activation_ins = []
+        
+        #TODO: 😩 Please implement parallel mini-batching, and please reduce the number of loops
+        for seq in x:
+            out_seq = []
+            states = [self.cell.state]
+            activation_ins = []
+            
+            for el in seq:
+                out, state, act_in = self.cell(el)
+                
+                out_seq.append(out)
+                states.append(state)
+                activation_ins.append(act_in)
+            self.cell.reset_state()
+            self.out_sequences.append(Softmax()(out_seq))
+            self.states.append(states)
+            self.activation_ins.append(activation_ins)
+        
+        return np.array(self.out_sequences)
+    
+    def backwards(self, dy):
+        dxs = []
+        param_updates = [0 for _ in range(self.cell.param_len)]
+        for dseq_idx, dseq in enumerate(dy):
+            ds_prev = self.cell.state_delta()
+            dxseq = []
+            
+            for dyel_idx, dyel in reversed(list(enumerate(dseq))):
+                dx, ds_prev, param_updates = self.cell.backwards(
+                    dyel,
+                    ds_prev,
+                    param_updates,
+                    self.cache["x"][dseq_idx][dyel_idx],
+                    self.states[dseq_idx][dyel_idx],
+                    self.states[dseq_idx][dyel_idx+1],
+                    self.activation_ins[dseq_idx][dyel_idx],
+                )
+                dxseq.append(dx)
+            dxs.append(dxseq)
+        #param_updates = [grad/len(dy) for grad in param_updates]
+        self.param_updates = [np.clip(grad, -1, 1) for grad in param_updates]
+        #print(self.param_updates)
+        return np.array(dxs)
+
+    def _update_params(self, lr):
+        self.cell.param_updates = self.param_updates
+        self.cell._update_params(lr)
 
 
 class RNNCell(Layer):
@@ -492,14 +563,13 @@ class RNNCell(Layer):
         self.trainable = True
         self.activation = activation
         self.activation_f = activations_dict[activation]()
+        self.state = np.zeros((self.state_dims, 1))
+        
+        self.param_len = 5
 
     def _init_params(self, in_dims, state_dims, out_dims, activation):
 
-        if activation in ("sigmoid", "tanh", "softmax"):
-            scale = 1 / math.sqrt(in_dims)
-
-        if activation == "relu" or activation is None:
-            scale = math.sqrt(2.0 / in_dims)
+        scale = scales[activation](in_dims)
 
         # Input params
         self.params["Wx"] = scale * np.random.randn(state_dims, in_dims)
@@ -509,14 +579,15 @@ class RNNCell(Layer):
         self.params["bs"] = np.zeros((state_dims, 1))
 
         # Output params
+        print(in_dims, state_dims, out_dims, self.out_dims)
         self.params["Wy"] = scale * np.random.randn(out_dims, state_dims)
         self.params["by"] = np.zeros((out_dims, 1))
 
     def init_layer(self, idx):
-        super().init_layer(idx)
         self._init_params(self.in_dims, self.state_dims, self.out_dims, self.activation)
+        super().init_layer(idx)
 
-    def forwards(self, x, state, tanh):
+    def forwards(self, x):
         """
         Forward pass for a RNN cell.
 
@@ -535,23 +606,25 @@ class RNNCell(Layer):
                 the new computed state.
         """
         x = np.dot(self.params["Wx"], x)
-        state = np.dot(self.params["Ws"], state) + self.params["bs"]
+        state = np.dot(self.params["Ws"], self.state) + self.params["bs"]
         tanh_in = x + state
-        new_state = tanh(tanh_in)
+        new_state = self.activation_f(tanh_in)
+        self.state = new_state
 
         y = np.dot(self.params["Wy"], new_state) + self.params["by"]
 
-        return y, new_state
+        return y, new_state, tanh_in
 
     def backwards(
-        self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, tanh
+        self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, tanh_in
     ):
 
         dwy = np.dot(dy, curr_state.T)
         dby = dy
         dsa = np.dot(self.grads["dsa"].T, dy) + ds_prev
 
-        dtanh = tanh.backwards(dsa)
+        self.activation_f.local_grads(tanh_in)
+        dtanh = self.activation_f.backwards(dsa)
         dbs = dtanh
         dws = np.dot(dtanh, prev_state.T)
         dwx = np.dot(dtanh, inputs.T)
@@ -561,19 +634,10 @@ class RNNCell(Layer):
         param_updates = [
             x + y for x, y in zip(prev_param_updates, [dwy, dws, dwx, dby, dbs])
         ]
-        param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
-
-        self.param_updates = {
-            "Wy": param_updates[0],
-            "Ws": param_updates[1],
-            "Wx": param_updates[2],
-            "by": param_updates[3],
-            "bs": param_updates[4],
-        }
 
         return dx, ds_prev, param_updates
 
-    def local_grads(self, x, state, tanh):
+    def local_grads(self, x):
 
         dsa = self.params["Wy"]
         ds_p = self.params["Ws"]
@@ -581,23 +645,227 @@ class RNNCell(Layer):
 
         grads = {"dx": dx, "dsa": dsa, "dsp": ds_p}
         return grads
-
-    def _update_params(self, lr, param_updates=None):
-        """
-        Updates the trainable parameters using the corresponding global gradients
-        computed during the Backpropogation
-
-        Params:
-            lr: float. learning rate.
-            param_updates: dict | None, parameter gradients to override the internal gradients.
-        """
-        if param_updates is None:
-            return super()._update_params(lr)
-
-        for key, _ in self.params.items():
-            self.params[key] -= lr * param_updates[key]
+    
+    def _update_params(self, lr):
+        self.param_updates = {
+            "Wy": self.param_updates[0],
+            "Ws": self.param_updates[1],
+            "Wx": self.param_updates[2],
+            "by": self.param_updates[3],
+            "bs": self.param_updates[4],
+        }
+        super()._update_params(lr)
+    
+    def reset_state(self):
+        self.state = np.zeros((self.state_dims, 1))
+    
+    def state_delta(self):
+        return np.zeros((self.state_dims, 1))
 
 
 class LSTMCell(Layer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, units, in_dims=None, activation="tanh", recurrent_activation="sigmoid"):
+        super().__init__()
+        
+        self.in_dims = in_dims
+        self.state_dims = units
+        self.activation = activation
+        self.recurrent_activation = recurrent_activation
+        self.trainable = True
+        
+        self.activation_f = activations_dict.get(activation)()
+        self.recurrent_activation_f = activations_dict.get(recurrent_activation)()
+        
+        self.state_c = np.zeros((self.state_dims, 1))
+        self.state_h = np.zeros((self.state_dims, 1))
+        self.state = (self.state_c, self.state_h)
+        self.inter_states = ()
+        
+        self.param_len = 10
+    
+    def _init_params(self, in_dims, concat_dims, state_dims, activation, recurrent_activation):
+        rscale = scales[recurrent_activation](concat_dims)
+        scale = scales[activation](concat_dims)
+        
+        self.params["Wf"] = np.random.randn(state_dims, concat_dims) * rscale
+        self.params["Wc"] = np.random.randn(state_dims, concat_dims) * scale
+        self.params["Wi"] = np.random.randn(state_dims, concat_dims) * rscale
+        self.params["Wo"] = np.random.randn(state_dims, concat_dims) * rscale
+        self.params["Wv"] = np.random.randn(state_dims, state_dims) * scale
+        
+        self.params["bg"] = np.zeros((state_dims, 1))
+        self.params["bc"] = np.zeros((state_dims, 1))
+        self.params["bi"] = np.zeros((state_dims, 1))
+        self.params["bo"] = np.zeros((state_dims, 1))
+        self.params["bv"] = np.zeros((state_dims, 1))
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        
+        self.out_dims = self.in_dims
+        self.concat_dims = self.in_dims + self.state_dims
+        
+        self._init_params(self.in_dims, self.concat_dims, self.state_dims, self.activation, self.recurrent_activation)
+    
+    def forwards(self, x):
+        xcon = np.hstack((x.reshape(self.in_dims), self.state_h.reshape(self.state_dims))).reshape((self.concat_dims, 1))
+        
+        a_sf = np.dot(self.params["Wf"], xcon) + self.params["bg"]
+        sf = self.recurrent_activation_f(a_sf)
+        a_sc = np.dot(self.params["Wc"], xcon) + self.params["bc"]
+        sc = self.activation_f(a_sc)
+        a_si = np.dot(self.params["Wi"], xcon) + self.params["bi"]
+        si = self.recurrent_activation_f(a_si)
+        a_so = np.dot(self.params["Wo"], xcon) + self.params["bo"]
+        so = self.recurrent_activation_f(a_so)
+        
+        sc = sc * self.state_c + (sf * si)
+        sh = self.activation_f(sc) * so
+        
+        v = np.dot(self.params["Wv"], sh) + self.params["bv"]
+        self.state_c, self.state_h = sc, sh
+        self.state = (sc, sh)
+        self.inter_states = (a_sf, a_sc, a_si, a_so, xcon)
+        
+        return v, self.state, self.inter_states
+    
+    def backwards(self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, act_ins):
+        sc_p, sh_p = prev_state
+        sc, sh = curr_state
+        f, c, i, o, xcon = act_ins
+        dsc_p, dsh_p = ds_prev
+        dsh_p += np.dot(self.params["Wv"].T, dy)
+        
+        
+        dsc = (dsh_p * self.recurrent_activation_f(o) * self.activation_f.local_grads(c)["X"]) + dsc_p
+        do = self.activation_f(sc) * dsh_p
+        df = sc_p * dsc
+        dc = self.recurrent_activation_f(i) * dsc
+        di = self.recurrent_activation_f(c) * dsc
+        
+        df_in = self.recurrent_activation_f.local_grads(f)["X"] * df
+        di_in = self.recurrent_activation_f.local_grads(i)["X"] * di
+        do_in = self.recurrent_activation_f.local_grads(o)["X"] * do
+        dc_in = self.activation_f.local_grads(c)["X"] * dc
+        
+        dWf = np.dot(df_in, xcon.T)
+        dWc = np.dot(dc_in, xcon.T)
+        dWi = np.dot(di_in, xcon.T)
+        dWo = np.dot(do_in, xcon.T)
+        dWv = np.dot(dy, sh.T)
+        dbf = df_in
+        dbc = dc_in
+        dbi = di_in
+        dbo = do_in
+        dbv = dy
+        
+        param_updates = [dWf, dWc, dWi, dWo, dWv, dbf, dbc, dbi, dbo, dbv]
+        param_updates = [a + b for a, b in zip(prev_param_updates, param_updates)]
+        
+        dxcon = np.zeros_like(xcon)
+        dxcon += np.dot(self.params["Wf"].T, df_in)
+        dxcon += np.dot(self.params["Wc"].T, dc_in)
+        dxcon += np.dot(self.params["Wi"].T, di_in)
+        dxcon += np.dot(self.params["Wo"].T, do_in)
+        
+        dsc_next = dsc * f
+        dsh_next = dxcon[self.in_dims:]
+        
+        dx = dxcon[:self.in_dims]
+        
+        ds_next = (dsc_next, dsh_next)
+        
+        return dx, ds_next, param_updates
+    
+    def local_grads(self, x):
+        dxcf = self.params["Wf"]
+        dxcc = self.params["Wc"]
+        dxci = self.params["Wi"]
+        dxco = self.params["Wo"]
+        
+        grads = {"dxcf": dxcf, "dxcc": dxcc, "dxci": dxci, "dxco": dxco}
+        return grads
+    
+    def _update_params(self, lr):
+        self.param_updates = {
+            "Wf": self.param_updates[0],
+            "Wc": self.param_updates[1],
+            "Wi": self.param_updates[2],
+            "Wo": self.param_updates[3],
+            "Wv": self.param_updates[4],
+            "bg": self.param_updates[5],
+            "bc": self.param_updates[6],
+            "bi": self.param_updates[7],
+            "bo": self.param_updates[8],
+            "bv": self.param_updates[9]
+        }
+        super()._update_params(lr)
+    
+    def reset_state(self):
+        self.state_c = np.zeros((self.state_dims, 1))
+        self.state_h = np.zeros((self.state_dims, 1))
+        self.state = (self.state_c, self.state_h)
+        self.inter_states = ()
+    
+    def state_delta(self):
+        dstate_c = np.zeros((self.state_dims, 1))
+        dstate_h = np.zeros((self.state_dims, 1))
+        dstate = (dstate_c, dstate_h)
+        return dstate
+
+class Embedding(Layer):
+    def __init__(self, embedding_dim, vocab_size):
+        super().__init__()
+        
+        self.embedding_dim = embedding_dim
+        self.vocab_size = vocab_size
+        
+        self.softmax = Softmax()
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        
+        self.out_dims = list(self.in_dims)
+        self.out_dims[-2] = self.embedding_dim
+        self.out_dims = tuple(self.out_dims)
+        
+        self._init_params(self.embedding_dim, self.vocab_size)
+    
+    def _init_params(self, embedding_dim, vocab_size):
+        self.params["We"] = np.random.uniform(-1, 1, (embedding_dim, vocab_size))
+    
+    def forwards(self, x):
+        self.cache["X"] = x
+        
+        embed = []
+        for seq in x:
+            emb_seq = []
+            for el in seq:
+                emb = np.dot(self.params["We"], el)
+
+                emb_seq.append(emb)
+            embed.append(emb_seq)
+        
+        return np.array(embed)
+    
+    def local_grads(self, x):
+        dxe = self.params["We"]
+        
+        grads = {"dxe": dxe}
+        return grads
+    
+    def backwards(self, dy):
+        dx = []
+        dWe = 0
+        for seq, dseq, dws in zip(dy, self.grads["dxe"], self.cache["X"]):
+            dx_seq = []
+            for el, delel, dw in zip(seq, dseq, dws):
+                dWe += np.dot(el, dw.T)
+                
+                eldx = np.dot(delel.T, el)
+                dx_seq.append(eldx)
+            dx.append(dx_seq)
+            dWe = dWe / len(seq)
+        
+        self.param_updates["We"] = dWe
+        return dx

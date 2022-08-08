@@ -67,43 +67,50 @@ index_to_chars[0] = "<END>"
 chars_to_index.pop("\n")
 chars_to_index["<END>"] = 0
 
+indexes = list(index_to_chars.keys())
+
 names = [name.strip().lower() for name in names]
 random.shuffle(names)
 print(names[:5])
 
-EPOCHS = 5
+EPOCHS = 15
 units = len(unique_chars)
 input_dims = len(unique_chars)
 
 cell = RNNCell(units, input_dims)
 cell.init_layer(0)
 optim = SGD()
+save = False
 loss_history = []
 
 # Training
+train_time = time.time()
 for epoch in range(EPOCHS):
 
     epoch_time = time.time()
-    for namex in track(names):
+    eloss = 0
+    for namex_idx in track(range(len(names))):
+        namex = names[namex_idx]
         X = [None] + [chars_to_index[ch] for ch in namex]
         Y_c = X[1:] + [chars_to_index["<END>"]]
 
         # transform the input X and label Y into one hot enconding.
         X = one_hot_encoding(X, input_dims)
         Y = np.array(one_hot_encoding(Y_c, units), dtype=int)
-        tanhs = [Tanh() for c in X]
+        tanhs = []
         softmaxe = Softmax()
         preds = []
 
         state = np.zeros((units, 1))
         states = [state]
 
-        for char, tanh in zip(X, tanhs):
-            y, state = cell(char, state, tanh)
+        for char in X:
+            y, state, act_in = cell(char)
             # print(y_probs)
 
             states.append(state)
             preds.append(y)
+            tanhs.append(act_in)
 
         preds = np.array(preds)
         preds = softmaxe(preds)
@@ -112,6 +119,7 @@ for epoch in range(EPOCHS):
         for pred, loss, y in zip(preds, losses, Y):
             loss_val += loss.forward(pred, y)
         loss_val = loss_val / len(namex)
+        eloss += loss_val
 
         dys = []
         for loss in losses:
@@ -129,29 +137,27 @@ for epoch in range(EPOCHS):
                 states[dy_idx + 1],
                 tanhs[dy_idx],
             )
+            cell.state = np.zeros((units, 1))
+        if namex_idx % 10 == 0:
+            param_updates = [np.clip(grad, -1, 1, out=grad) for grad in param_updates]
+            cell.params, _ = optim.optim(cell.params, param_updates)
 
-        cell.params, _ = optim.optim(cell.params, param_updates)
-
-    loss_history.append(loss_val)
+    loss_history.append(eloss/len(names))
     if epoch % 1 == 0:
         print(
-            f"Epoch {epoch} took {round(time.time()-epoch_time, 3)}s | loss: {loss_val}"
+            f"Epoch {epoch} took {round(time.time()-epoch_time, 3)}s | loss: {eloss/len(names)}"
         )
 
         print("Names created:", "\n")
         for i in range(4):
             letter = None
-            indexes = list(index_to_chars.keys())
 
+            cell.reset_state()
             letter_x = np.zeros((input_dims, 1))
             name = []
 
-            # similar to forward propagation.
-            layer_tanh = Tanh()
-            hidden = np.zeros((units, 1))
-
             while letter != "<END>" and len(name) < 15:
-                y, hidden = cell(letter_x, hidden, layer_tanh)
+                y, hidden, _ = cell(letter_x)
                 y_pred = softmaxe(y.reshape(1, y.shape[0])).reshape(
                     (y.shape[0], y.shape[1])
                 )
@@ -165,12 +171,42 @@ for epoch in range(EPOCHS):
                 letter_x[index] = 1
 
             print("".join(name))
+print(f"Training took {round(time.time()-train_time)}s, final loss {loss_val}")
 from matplotlib import pyplot as plt
 
 plt.plot(loss_history)
 plt.show()
 
-import json
-with open("namegen.json", "w") as f:
-    params = {arg: val.tolist() for arg, val in cell.params.items()}
-    json.dump(params, f)
+generated = []
+for i in range(500):
+    letter = None
+    indexes = list(index_to_chars.keys())
+
+    cell.reset_state()
+    letter_x = np.zeros((input_dims, 1))
+    name = []
+
+    while letter != "<END>" and len(name) < 15:
+        y, hidden, _ = cell(letter_x)
+        y_pred = softmaxe(y.reshape(1, y.shape[0])).reshape(
+            (y.shape[0], y.shape[1])
+        )
+
+        index = np.random.choice(indexes, p=y_pred.ravel())
+        letter = index_to_chars[index]
+
+        name.append(letter)
+
+        letter_x = np.zeros((input_dims, 1))
+        letter_x[index] = 1
+
+    name.pop(-1)
+    print("".join(name)) if len(name) > 3 else None
+    generated.append("".join(name)) if len(name) > 3 else None
+print(f"Non-Empty names: {len(generated)} out of 500")
+
+if save:
+    import json
+    with open("namegen.json", "w") as f:
+        params = {arg: val.tolist() for arg, val in cell.params.items()}
+        json.dump(params, f)
