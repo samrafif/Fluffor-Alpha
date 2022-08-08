@@ -491,8 +491,8 @@ class RNN(Layer):
     def init_layer(self, idx):
         super().init_layer(idx)
         self.cell.in_dims = self.in_dims[-2]
-        self.out_dims = self.in_dims
         self.cell.init_layer(idx)
+        self.out_dims = self.cell.out_dims
     
     def forwards(self, x):
         self.states = []
@@ -539,7 +539,9 @@ class RNN(Layer):
                 )
                 dxseq.append(dx)
             dxs.append(dxseq)
-        self.param_updates = [np.clip(grad/len(dy), -1, 1, out=grad) for grad in param_updates]
+        #param_updates = [grad/len(dy) for grad in param_updates]
+        self.param_updates = [np.clip(grad, -1, 1) for grad in param_updates]
+        #print(self.param_updates)
         return np.array(dxs)
 
     def _update_params(self, lr):
@@ -577,12 +579,13 @@ class RNNCell(Layer):
         self.params["bs"] = np.zeros((state_dims, 1))
 
         # Output params
+        print(in_dims, state_dims, out_dims, self.out_dims)
         self.params["Wy"] = scale * np.random.randn(out_dims, state_dims)
         self.params["by"] = np.zeros((out_dims, 1))
 
     def init_layer(self, idx):
-        super().init_layer(idx)
         self._init_params(self.in_dims, self.state_dims, self.out_dims, self.activation)
+        super().init_layer(idx)
 
     def forwards(self, x):
         """
@@ -660,7 +663,6 @@ class RNNCell(Layer):
         return np.zeros((self.state_dims, 1))
 
 
-# FIXME: The loss drops, but it outputs random chars when in names_gen testing, please find out why this happens ASAP
 class LSTMCell(Layer):
     def __init__(self, units, in_dims=None, activation="tanh", recurrent_activation="sigmoid"):
         super().__init__()
@@ -679,7 +681,7 @@ class LSTMCell(Layer):
         self.state = (self.state_c, self.state_h)
         self.inter_states = ()
         
-        self.param_len = 8
+        self.param_len = 10
     
     def _init_params(self, in_dims, concat_dims, state_dims, activation, recurrent_activation):
         rscale = scales[recurrent_activation](concat_dims)
@@ -689,11 +691,13 @@ class LSTMCell(Layer):
         self.params["Wc"] = np.random.randn(state_dims, concat_dims) * scale
         self.params["Wi"] = np.random.randn(state_dims, concat_dims) * rscale
         self.params["Wo"] = np.random.randn(state_dims, concat_dims) * rscale
+        self.params["Wv"] = np.random.randn(state_dims, state_dims) * scale
         
         self.params["bg"] = np.zeros((state_dims, 1))
         self.params["bc"] = np.zeros((state_dims, 1))
         self.params["bi"] = np.zeros((state_dims, 1))
         self.params["bo"] = np.zeros((state_dims, 1))
+        self.params["bv"] = np.zeros((state_dims, 1))
     
     def init_layer(self, idx):
         super().init_layer(idx)
@@ -715,43 +719,47 @@ class LSTMCell(Layer):
         a_so = np.dot(self.params["Wo"], xcon) + self.params["bo"]
         so = self.recurrent_activation_f(a_so)
         
-        sc = sc * sf + (self.state_c * si)
+        sc = sc * self.state_c + (sf * si)
         sh = self.activation_f(sc) * so
         
+        v = np.dot(self.params["Wv"], sh) + self.params["bv"]
         self.state_c, self.state_h = sc, sh
         self.state = (sc, sh)
         self.inter_states = (a_sf, a_sc, a_si, a_so, xcon)
         
-        return sh, self.state, self.inter_states
+        return v, self.state, self.inter_states
     
     def backwards(self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, act_ins):
         sc_p, sh_p = prev_state
         sc, sh = curr_state
         f, c, i, o, xcon = act_ins
         dsc_p, dsh_p = ds_prev
-        dsh_p += dy
+        dsh_p += np.dot(self.params["Wv"].T, dy)
         
-        dsc = o * dsh_p + dsc_p
-        do = sc * dsh_p
-        df = c * dsc
-        dc = f * dsc
-        di = sc_p * dsc
+        
+        dsc = (dsh_p * self.recurrent_activation_f(o) * self.activation_f.local_grads(c)["X"]) + dsc_p
+        do = self.activation_f(sc) * dsh_p
+        df = sc_p * dsc
+        dc = self.recurrent_activation_f(i) * dsc
+        di = self.recurrent_activation_f(c) * dsc
         
         df_in = self.recurrent_activation_f.local_grads(f)["X"] * df
         di_in = self.recurrent_activation_f.local_grads(i)["X"] * di
         do_in = self.recurrent_activation_f.local_grads(o)["X"] * do
         dc_in = self.activation_f.local_grads(c)["X"] * dc
         
-        dWf = np.outer(df_in, xcon)
-        dWc = np.outer(dc_in, xcon)
-        dWi = np.outer(di_in, xcon)
-        dWo = np.outer(do_in, xcon)
+        dWf = np.dot(df_in, xcon.T)
+        dWc = np.dot(dc_in, xcon.T)
+        dWi = np.dot(di_in, xcon.T)
+        dWo = np.dot(do_in, xcon.T)
+        dWv = np.dot(dy, sh.T)
         dbf = df_in
         dbc = dc_in
         dbi = di_in
         dbo = do_in
+        dbv = dy
         
-        param_updates = [dWf, dWc, dWi, dWo, dbf, dbc, dbi, dbo]
+        param_updates = [dWf, dWc, dWi, dWo, dWv, dbf, dbc, dbi, dbo, dbv]
         param_updates = [a + b for a, b in zip(prev_param_updates, param_updates)]
         
         dxcon = np.zeros_like(xcon)
@@ -760,7 +768,7 @@ class LSTMCell(Layer):
         dxcon += np.dot(self.params["Wi"].T, di_in)
         dxcon += np.dot(self.params["Wo"].T, do_in)
         
-        dsc_next = dsc * i
+        dsc_next = dsc * f
         dsh_next = dxcon[self.in_dims:]
         
         dx = dxcon[:self.in_dims]
@@ -784,10 +792,12 @@ class LSTMCell(Layer):
             "Wc": self.param_updates[1],
             "Wi": self.param_updates[2],
             "Wo": self.param_updates[3],
-            "bg": self.param_updates[4],
-            "bc": self.param_updates[5],
-            "bi": self.param_updates[6],
-            "bo": self.param_updates[7]
+            "Wv": self.param_updates[4],
+            "bg": self.param_updates[5],
+            "bc": self.param_updates[6],
+            "bi": self.param_updates[7],
+            "bo": self.param_updates[8],
+            "bv": self.param_updates[9]
         }
         super()._update_params(lr)
     
