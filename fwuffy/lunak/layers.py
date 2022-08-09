@@ -710,7 +710,7 @@ class LSTMCell(Layer):
         self._init_params(self.in_dims, self.concat_dims, self.state_dims, self.activation, self.recurrent_activation)
     
     def forwards(self, x):
-        xcon = np.hstack((x.reshape(self.in_dims), self.state_h.reshape(self.state_dims))).reshape((self.concat_dims, 1))
+        xcon = np.concatenate((x, self.state_h), axis=0)
         
         a_sf = np.dot(self.params["Wf"], xcon) + self.params["bg"]
         sf = self.recurrent_activation_f(a_sf)
