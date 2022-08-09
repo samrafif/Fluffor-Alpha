@@ -492,7 +492,9 @@ class RNN(Layer):
         super().init_layer(idx)
         self.cell.in_dims = self.in_dims[-2]
         self.cell.init_layer(idx)
-        self.out_dims = self.cell.out_dims
+        temp = list(self.in_dims)
+        temp[-2] = self.cell.out_dims
+        self.out_dims = temp
     
     def forwards(self, x):
         self.states = []
@@ -514,7 +516,7 @@ class RNN(Layer):
                 states.append(state)
                 activation_ins.append(act_in)
             self.cell.reset_state()
-            self.out_sequences.append(Softmax()(out_seq))
+            self.out_sequences.append((out_seq))
             self.states.append(states)
             self.activation_ins.append(activation_ins)
         

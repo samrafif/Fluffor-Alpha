@@ -76,7 +76,7 @@ tokensy = [[chars_to_index[char] for char in name]+[0]*(10-len(name)) for name i
 one_hot_encodedy = np.array([one_hot_encoding(tok, len(unique_chars)) for tok in tokensy], dtype=int)
 batchesy = np.array(np.split(one_hot_encodedy, 61))
 
-EPOCHS = 3
+EPOCHS = 1
 units = 27
 input_dims = len(unique_chars)
 embedding_layer0 = Embedding(32, 27)
@@ -84,7 +84,7 @@ embedding_layer0.in_dims = batches.shape[1:]
 embedding_layer0.init_layer(0)
 rnn_layer0 = RNN(LSTMCell(units))
 linear0 = Linear(27, activation="softmax")
-linear0.in_dims = 32
+linear0.in_dims = 27
 linear0.init_layer(0)
 print(linear0.out_dims)
 print(embedding_layer0.out_dims)
@@ -96,7 +96,7 @@ for i in range(EPOCHS):
     for batch, batchy in zip(track(batches), batchesy):
         x=embedding_layer0(batch)
         x=rnn_layer0(x)
-        #x=linear0(x.reshape((-1, units))).reshape((-1, 10, 27, 1))
+        x=linear0(x.reshape((-1, units))).reshape((-1, 10, 27, 1))
         
         losses = [[CrossEntropyLoss() for el in seq] for seq in x]
         loss_v = 0
@@ -114,12 +114,12 @@ for i in range(EPOCHS):
             dys.append(seqdy)
         dy = np.array(dys)
         
-        # dy = linear0.backwards(dy).reshape((-1, 16, 27, 1))
+        dy = linear0.backwards(dy.reshape((-1, units))).reshape((-1, 10, 27, 1))
         dy = rnn_layer0.backwards(dy)
         dy = embedding_layer0.backwards(dy)
-        embedding_layer0._update_params(0.05)
-        rnn_layer0._update_params(0.05)
-        # linear0._update_params(0.1)
+        embedding_layer0._update_params(0.01)
+        rnn_layer0._update_params(0.01)
+        linear0._update_params(0.01)
     print(loss_v/len(x))
     for i in range(1):
         letter = None
@@ -130,6 +130,7 @@ for i in range(EPOCHS):
         while letter != "<END>" and len(name) < 10:
             x=embedding_layer0(letter_x)
             x=rnn_layer0(x)
+            x=linear0(x.reshape((-1, units))).reshape((1, 1, 27, 1))
 
             index = np.random.choice(indexes, p=x.ravel())
             letter = index_to_chars[index]
@@ -149,6 +150,7 @@ for i in range(100):
     while letter != "<END>" and len(name) < 10:
         x=embedding_layer0(letter_x)
         x=rnn_layer0(x)
+        x=linear0(x.reshape((-1, units))).reshape((1, 1, 27, 1))
 
         index = np.random.choice(indexes, p=x.ravel())
         letter = index_to_chars[index]
