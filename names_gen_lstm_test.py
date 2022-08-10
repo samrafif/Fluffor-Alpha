@@ -80,7 +80,7 @@ EPOCHS = 1
 units = 27
 input_dims = len(unique_chars)
 embedding_layer0 = Embedding(32, 27)
-embedding_layer0.in_dims = batches.shape[1:]
+embedding_layer0.in_dims = batches.shape[2:]
 embedding_layer0.init_layer(0)
 rnn_layer0 = RNN(LSTMCell(units))
 linear0 = Linear(27, activation="softmax")
