@@ -12,6 +12,7 @@ scales = {
     "sigmoid": lambda in_dims: 1 / math.sqrt(in_dims),
     "tanh": lambda in_dims: 1 / math.sqrt(in_dims),
     "softmax": lambda in_dims: 1 / math.sqrt(in_dims),
+    None: lambda in_dims: 1
 }
 
 
@@ -68,6 +69,26 @@ class Flatten(Layer):
         batch = x.shape[0]
         return x.reshape(batch, -1)
 
+    def backwards(self, dy):
+        return dy.reshape(self.cache["shape"])
+
+
+class Reshape(Layer):
+    def __init__(self, new_shape):
+        super().__init__()
+        
+        self.new_shape = new_shape
+    
+    def init_layer(self, idx):
+        super().init_layer(idx)
+        
+        self.out_dims = self.new_shape[-1]
+    
+    def forwards(self, x):
+        self.cache["shape"] = x.shape
+        
+        return x.reshape(self.new_shape)
+    
     def backwards(self, dy):
         return dy.reshape(self.cache["shape"])
 
@@ -494,7 +515,7 @@ class RNN(Layer):
         self.cell.init_layer(idx)
         temp = list(self.in_dims)
         temp[-2] = self.cell.out_dims
-        self.out_dims = temp
+        self.out_dims = tuple(temp)
     
     def forwards(self, x):
         self.states = []
@@ -502,13 +523,13 @@ class RNN(Layer):
         self.out_sequences = []
         self.cache["x"] = x
         self.activation_ins = []
-        
         #TODO: 😩 Please implement parallel mini-batching, and please reduce the number of loops
         for seq in x:
             out_seq = []
             states = [self.cell.state]
             activation_ins = []
             
+            seq = reversed(seq) if self.reverse else seq
             for el in seq:
                 out, state, act_in = self.cell(el)
                 
@@ -520,7 +541,8 @@ class RNN(Layer):
             self.states.append(states)
             self.activation_ins.append(activation_ins)
         
-        return np.array(self.out_sequences)
+        y = np.array(self.out_sequences) if self.return_sequences else np.array(self.out_sequences[-1])
+        return y if not self.return_state else (y, self.states)
     
     def backwards(self, dy):
         dxs = []
@@ -529,6 +551,7 @@ class RNN(Layer):
             ds_prev = self.cell.state_delta()
             dxseq = []
             
+            dseq = reversed(dseq) if self.reverse else dseq
             for dyel_idx, dyel in reversed(list(enumerate(dseq))):
                 dx, ds_prev, param_updates = self.cell.backwards(
                     dyel,
@@ -702,7 +725,7 @@ class LSTMCell(Layer):
     def init_layer(self, idx):
         super().init_layer(idx)
         
-        self.out_dims = self.in_dims
+        self.out_dims = self.state_dims
         self.concat_dims = self.in_dims + self.state_dims
         
         self._init_params(self.in_dims, self.concat_dims, self.state_dims, self.activation, self.recurrent_activation)
@@ -862,4 +885,4 @@ class Embedding(Layer):
             dWe = dWe / len(seq)
         
         self.param_updates["We"] = dWe
-        return dx
+        return np.array(dx)
