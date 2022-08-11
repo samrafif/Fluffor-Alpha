@@ -61,7 +61,7 @@ def plot_classifier(
 
 
 # generating some data
-n_class_size = 100
+n_class_size = 200
 r = 2
 X1_offset = np.random.rand(n_class_size, 2) - 0.5
 np.sqrt(np.sum(X1_offset ** 2, axis=1, keepdims=True))
@@ -101,7 +101,7 @@ net = Sequential(
 net.summary()
 loss_history = []
 acc_history = []
-n_epochs = 1000
+n_epochs = 500
 for epoch_idx in range(0, n_epochs):
     out = net(X)
     # prediction accuracy
