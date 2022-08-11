@@ -42,7 +42,7 @@ model = Sequential([
   Linear(27, activation="softmax"),
 ], (10, 27, 1), CrossEntropyLoss())
 
-EPOCHS = 1
+EPOCHS = 2
 for epoch in range(EPOCHS):
   aloss=0
   for b, by in zip(track(batches), batchesy):
@@ -56,17 +56,19 @@ for i in range(100):
     letter = None
 
     letter_x = np.zeros((1, 1, 27, 1))
+    index = random.choice(indexes)
+    letter_x[0,0,index] = [1.0]
     name = []
 
     while letter != "<END>" and len(name) < 10:
-        x = model(letter_x).reshape((1, 1, 27, 1))
-
-        index = np.random.choice(indexes, p=x.ravel())
+        x = model(letter_x).reshape(letter_x.shape)
+        index = np.random.choice(indexes, p=x[:, -1, :, :].ravel())
         letter = index_to_chars[index]
         name.append(letter)
 
-        letter_x = np.zeros((1, 1, 27, 1))
-        letter_x[0,0,index] = [1]
+        letter_x_a = np.zeros((1, 1, 27, 1))
+        letter_x_a[0,0,index] = [1.0]
+        letter_x=np.concatenate((letter_x, letter_x_a), axis=1)
 
     name.pop(-1)
     print("".join(name)) if len(name) > 2 else None
