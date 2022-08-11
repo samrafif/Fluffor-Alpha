@@ -1,5 +1,7 @@
 import numpy as np
 
+from fwuffy.lunak.utils import one_hot_encoding
+
 from .base import Function
 
 
@@ -93,6 +95,5 @@ class CrossEntropyLoss(Loss):
         ones = np.zeros_like(probs)
         for row_idx, col_idx in enumerate(Y):
             ones[row_idx, col_idx] = 1.0
-
-        grads = {"X": (probs - ones) / float(len(X))}
+        grads = {"X": (X - ones)}
         return grads
