@@ -6,6 +6,7 @@ from fwuffy.lunak.utils import one_hot_encoding
 import random
 import numpy as np
 from matplotlib import pyplot as plt
+from rich.progress import track
 
 # Prepare training data
 with open("./person_names.txt", "r") as f:
@@ -35,15 +36,16 @@ print(batchesy.shape)
 
 model = Sequential([
   Embedding(32, 27),
-  RNN(LSTMCell(27), return_sequences=True),
-  Reshape((-1, 27)),
+  RNN(LSTMCell(32), return_sequences=True),
+  Reshape((-1, 32)),
+  Linear(32, activation="sigmoid"),
   Linear(27, activation="softmax"),
 ], (10, 27, 1), CrossEntropyLoss())
 
 EPOCHS = 1
 for epoch in range(EPOCHS):
   aloss=0
-  for b, by in zip(batches, batchesy):
+  for b, by in zip(track(batches), batchesy):
     x = model(b)
     aloss+=model.loss(x, by.reshape((-1)))
     model.backwards()
