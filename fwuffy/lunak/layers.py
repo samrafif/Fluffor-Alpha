@@ -491,7 +491,6 @@ class Conv2D(Layer):
         return dx[:,:, self.padding: -self.padding, self.padding: -self.padding]
 
 
-# TODO: Write RNN class wrapper, to automate reccurent loop
 class RNN(Layer):
     def __init__(
         self, cell, return_sequences=False, return_state=False, reverse=False
