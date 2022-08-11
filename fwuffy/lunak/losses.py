@@ -1,7 +1,5 @@
 import numpy as np
 
-from fwuffy.lunak.utils import one_hot_encoding
-
 from .base import Function
 
 
