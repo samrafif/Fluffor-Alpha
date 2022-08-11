@@ -82,7 +82,7 @@ input_dims = len(unique_chars)
 embedding_layer0 = Embedding(32, 27)
 embedding_layer0.in_dims = batches.shape[2:]
 embedding_layer0.init_layer(0)
-rnn_layer0 = RNN(LSTMCell(units))
+rnn_layer0 = RNN(LSTMCell(units), return_sequences=True)
 linear0 = Linear(27, activation="softmax")
 linear0.in_dims = 27
 linear0.init_layer(0)
