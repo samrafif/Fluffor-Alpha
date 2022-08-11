@@ -604,7 +604,6 @@ class RNNCell(Layer):
         self.params["bs"] = np.zeros((state_dims, 1))
 
         # Output params
-        print(in_dims, state_dims, out_dims, self.out_dims)
         self.params["Wy"] = scale * np.random.randn(out_dims, state_dims)
         self.params["by"] = np.zeros((out_dims, 1))
 
