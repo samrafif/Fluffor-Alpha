@@ -27,12 +27,12 @@ indexes = list(index_to_chars.keys())
 names = [name.strip().lower() if len(name) < 10 else name.strip().lower()[:9] for name in names]
 random.shuffle(names)
 print(names[:5])
-tokens = [[None]+[chars_to_index[char] for char in name]+[0]*(9-len(name)) for name in names]
+tokens = [[chars_to_index[char] for char_idx, char in enumerate(name) if char_idx != 9]+[0]*(10-len(name)) for name in names]
 one_hot_encoded = np.array([one_hot_encoding(tok, len(unique_chars)) for tok in tokens])
 batches = np.array(np.split(one_hot_encoded, 299))
-tokensy = [[chars_to_index[char] for char in name]+[0]*(10-len(name)) for name in names]
+tokensy = [[chars_to_index[char] for char_idx, char in enumerate(name) if char_idx != 0]+[0]*(11-len(name)) for name in names]
 batchesy = np.array(np.split(np.array(tokensy), 299))
-print(batchesy.shape)
+print(batchesy.shape, batches.shape)
 
 model = Sequential([
   Embedding(32, 27),
@@ -42,7 +42,7 @@ model = Sequential([
   Linear(27, activation="softmax"),
 ], (10, 27, 1), CrossEntropyLoss())
 
-EPOCHS = 2
+EPOCHS = 3
 for epoch in range(EPOCHS):
   aloss=0
   for b, by in zip(track(batches), batchesy):
