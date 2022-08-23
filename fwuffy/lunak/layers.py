@@ -760,7 +760,7 @@ class LSTMCell(Layer):
         do = self.activation_f(sc) * dsh
         df = sc_p * dsc
         dc = self.recurrent_activation_f(i) * dsc
-        di = self.recurrent_activation_f(c) * dsc
+        di = self.activation_f(c) * dsc
         
         df_in = self.recurrent_activation_f.local_grads(f)["X"] * df
         di_in = self.recurrent_activation_f.local_grads(i)["X"] * di
