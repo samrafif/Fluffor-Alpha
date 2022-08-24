@@ -780,10 +780,10 @@ class LSTMCell(Layer):
         param_updates = [a + b for a, b in zip(prev_param_updates, param_updates)]
         
         dxcon = np.zeros_like(xcon)
-        dxcon += np.dot(self.params["Wf"].T, df_in)
-        dxcon += np.dot(self.params["Wc"].T, dc_in)
-        dxcon += np.dot(self.params["Wi"].T, di_in)
-        dxcon += np.dot(self.params["Wo"].T, do_in)
+        dxcon += np.dot(self.grads["dxcf"].T, df_in)
+        dxcon += np.dot(self.grads["dxcc"].T, dc_in)
+        dxcon += np.dot(self.grads["dxci"].T, di_in)
+        dxcon += np.dot(self.grads["dxco"].T, do_in)
         
         dsc_next = dsc * f
         dsh_next = dxcon[self.in_dims:]
