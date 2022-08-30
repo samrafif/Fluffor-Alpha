@@ -691,7 +691,7 @@ class LSTMCell(Layer):
         super().__init__()
         
         self.in_dims = in_dims
-        self.state_dims = units
+        self.units = units
         self.activation = activation
         self.recurrent_activation = recurrent_activation
         self.trainable = True
@@ -699,8 +699,8 @@ class LSTMCell(Layer):
         self.activation_f = activations_dict.get(activation)()
         self.recurrent_activation_f = activations_dict.get(recurrent_activation)()
         
-        self.state_c = np.zeros((self.state_dims, 1))
-        self.state_h = np.zeros((self.state_dims, 1))
+        self.state_c = np.zeros((self.units, 1))
+        self.state_h = np.zeros((self.units, 1))
         self.state = (self.state_c, self.state_h)
         self.inter_states = ()
         
@@ -723,10 +723,10 @@ class LSTMCell(Layer):
     def init_layer(self, idx):
         super().init_layer(idx)
         
-        self.out_dims = self.state_dims
-        self.concat_dims = self.in_dims + self.state_dims
+        self.out_dims = self.units
+        self.concat_dims = self.in_dims + self.units
         
-        self._init_params(self.in_dims, self.concat_dims, self.state_dims, self.activation, self.recurrent_activation)
+        self._init_params(self.in_dims, self.concat_dims, self.units, self.activation, self.recurrent_activation)
     
     def forwards(self, x):
         xcon = np.concatenate((x, self.state_h), axis=0)
@@ -817,14 +817,14 @@ class LSTMCell(Layer):
         super()._update_params(lr)
     
     def reset_state(self):
-        self.state_c = np.zeros((self.state_dims, 1))
-        self.state_h = np.zeros((self.state_dims, 1))
+        self.state_c = np.zeros((self.units, 1))
+        self.state_h = np.zeros((self.units, 1))
         self.state = (self.state_c, self.state_h)
         self.inter_states = ()
     
     def state_delta(self):
-        dstate_c = np.zeros((self.state_dims, 1))
-        dstate_h = np.zeros((self.state_dims, 1))
+        dstate_c = np.zeros((self.units, 1))
+        dstate_h = np.zeros((self.units, 1))
         dstate = (dstate_c, dstate_h)
         return dstate
 
