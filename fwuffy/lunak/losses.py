@@ -1,5 +1,7 @@
 import numpy as np
 
+from fwuffy.lunak.utils import one_hot_encoding
+
 from .base import Function
 
 
@@ -76,14 +78,12 @@ class CrossEntropyLoss(Loss):
         Returns:
             crossentropy_loss: numpy.float. Cross entropy loss of x with respect to y.
         """
-        # calculating crossentropy
-        exp_x = np.exp(X)
-        probs = exp_x / np.sum(exp_x, axis=1, keepdims=True)
-        log_probs = -np.log([probs[i, y[i]] for i in range(len(probs))])
+
+        log_probs = -np.log([X[i, y[i]] for i in range(len(X))])
         crossentropy_loss = np.mean(log_probs)
 
         # caching for backprop
-        self.cache["probs"] = probs
+        self.cache["probs"] = X
         self.cache["y"] = y
 
         return crossentropy_loss
@@ -93,5 +93,5 @@ class CrossEntropyLoss(Loss):
         ones = np.zeros_like(probs)
         for row_idx, col_idx in enumerate(Y):
             ones[row_idx, col_idx] = 1.0
-        grads = {"X": (X - ones)}
+        grads = {"X": (probs - ones)}
         return grads

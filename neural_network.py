@@ -111,7 +111,7 @@ for epoch_idx in range(0, n_epochs):
     loss_history.append(loss)
     acc_history.append(accuracy)
     grad = net.backwards()
-    net.apply_gradients(0.1)
+    net.apply_gradients(0.05/float(out.shape[0]))
     if epoch_idx % 100 == 0:
         print("Epoch no. %d" % (epoch_idx))
         print("loss: ", loss)
