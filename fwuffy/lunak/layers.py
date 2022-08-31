@@ -32,7 +32,6 @@ class Layer(Function):
 
     def init_layer(self, idx, **kwargs):
         self.name += str(idx)
-        self.name += f" ({self.__class__.__name__})"
         self.out_dims = self.in_dims if getattr(self, "out_dims", None) is None else self.out_dims
 
     def _update_params(self, lr):

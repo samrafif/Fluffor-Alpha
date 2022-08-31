@@ -2,6 +2,9 @@ import inspect
 import typing
 import numpy as np
 import json
+import pathlib
+import zipfile
+import tempfile
 from collections import defaultdict
 
 from tabulate import tabulate
@@ -76,28 +79,29 @@ class Sequential(Model):
 
     def summary(self):
 
-        null = np.array([])
-
-        layer_names = [layer.name for layer in self.layers]
+        layer_names = [layer.name + f" ({layer.__class__.__name__})" for layer in self.layers]
         output_dims = [layer.out_dims for layer in self.layers]
 
         param_n = [
-            np.prod(layer.params.get("W", null).shape)
-            + np.prod(layer.params.get("b", null).shape)
+            sum([
+                np.prod(val.shape) for val in layer.params.values()
+            ])
             for layer in self.layers
         ]
         trainable_params = sum(
             [
-                np.prod(layer.params.get("W", null).shape)
-                + np.prod(layer.params.get("b", null).shape)
+                sum([
+                    np.prod(val.shape) for val in layer.params.values()
+                ])
                 if layer.trainable else 0
                 for layer in self.layers
             ]
         )
         untrainable_params = sum(
             [
-                np.prod(layer.params.get("W", null).shape)
-                + np.prod(layer.params.get("b", null).shape)
+                sum([
+                    np.prod(val.shape) for val in layer.params.values()
+                ])
                 if not layer.trainable else 0
                 for layer in self.layers
             ]
@@ -115,27 +119,40 @@ class Sequential(Model):
         print(f"Non trainable params: {untrainable_params}")
 
     def save(self, path):
-        saved_model = {}
-        saved_model["model_name"] = self.__class__.__name__
-        saved_model["layers_count"] = len(self.layers)
-        saved_model["input_dims"] = self.input_dim
-        saved_model["loss_func"] = self.loss_func.name
-        saved_model["layers"] = []
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            directory = pathlib.Path(tmpdirname)
+            with zipfile.ZipFile(f"{path}.zip", mode="w") as archive:
+                saved_model = {
+                    "model_name": self.__class__.__name__,
+                    "layers_count": len(self.layers),
+                    "input_dims": self.input_dim,
+                    "loss_func": self.loss_func.name,
+                    "layers": []
+                }
 
-        for layer in self.layers:
-            saved_layer = {}
-            saved_layer["layer_name"] = layer.name
-            saved_layer["layer_type"] = layer.__class__.__name__
-            args = {
-                arg: layer.__dict__.get(arg)
-                for arg in inspect.signature(layer.__class__.__init__).parameters.keys()
-            }
-            args.pop("self")
-            saved_layer["layer_args"] = args
-            saved_layer["layer_params"] = {
-                key: val.tolist() for key, val in layer.params.items()
-            }
-            saved_model["layers"].append(saved_layer)
+                for layer in self.layers:
+                    args = {
+                        arg: layer.__dict__.get(arg)
+                        for arg in inspect.signature(layer.__class__.__init__).parameters.keys()
+                    }
+                    args.pop("self")
+                    saved_layer = {
+                        "layer_name": layer.name,
+                        "layer_type": layer.__class__.__name__,
+                        "layer_args": args
+                    }
+                    saved_model["layers"].append(saved_layer)
 
-        with open(path + ".json", "w") as f:
-            json.dump(saved_model, f)
+                    dp = directory / layer.name
+                    dp.mkdir() if layer.trainable else None
+                    for key, val in layer.params.items():
+                        fp = dp / key
+                        np.save(fp, val)
+
+                fp = directory / "mnfst.json"
+                with fp.open("w") as f:
+                    json.dump(saved_model, f)
+
+                for file_path in  [f for f in directory.resolve().glob('**/*') if f.is_file()]: 
+                    path = "\\".join(file_path.parts[len(directory.parts):])
+                    archive.write(file_path, arcname=path)
