@@ -5,7 +5,7 @@ from typing import Optional
 
 from .activations import Softmax, Tanh, activations_dict, leaky_relu, leaky_relu_prime
 from .base import Function
-from .utils import zero_pad
+from .utils import one_hot_encoding, zero_pad
 
 scales = {
     "relu": lambda in_dims: math.sqrt(2.0 / in_dims),
@@ -846,21 +846,18 @@ class Embedding(Layer):
         self._init_params(self.embedding_dim, self.vocab_size)
     
     def _init_params(self, embedding_dim, vocab_size):
-        self.params["We"] = np.random.uniform(-1, 1, (embedding_dim, vocab_size))
+        self.params["We"] = np.random.uniform(-1, 1, (vocab_size, embedding_dim))
     
     def forwards(self, x):
-        self.cache["X"] = x
+        ohenc = np.array([one_hot_encoding(tok, self.vocab_size) for tok in x])
+        self.cache["shape"] = ohenc.shape
+        new_shape = list(ohenc.shape)
+        new_shape[-2] = self.embedding_dim
+        self.cache["X"] = ohenc
         
-        embed = []
-        for seq in x:
-            emb_seq = []
-            for el in seq:
-                emb = np.dot(self.params["We"], el)
-
-                emb_seq.append(emb)
-            embed.append(emb_seq)
+        embed = np.dot(ohenc.reshape((-1, self.vocab_size)), self.params["We"])
         
-        return np.array(embed)
+        return embed.reshape(new_shape)
     
     def local_grads(self, x):
         dxe = self.params["We"]
@@ -869,17 +866,9 @@ class Embedding(Layer):
         return grads
     
     def backwards(self, dy):
-        dx = []
-        dWe = 0
-        for seq, dseq, dws in zip(dy, self.grads["dxe"], self.cache["X"]):
-            dx_seq = []
-            for el, delel, dw in zip(seq, dseq, dws):
-                dWe += np.dot(el, dw.T)
-                
-                eldx = np.dot(delel.T, el)
-                dx_seq.append(eldx)
-            dx.append(dx_seq)
-            dWe = dWe / len(seq)
+        dy_prev = dy.reshape((-1, self.embedding_dim)).dot(self.grads["dxe"].T)
+
+        dw = dy.reshape((-1, self.embedding_dim)).T.dot(self.cache["X"].reshape((-1, self.vocab_size)))
         
-        self.param_updates["We"] = dWe
-        return np.array(dx)
+        self.param_updates["We"] = dw
+        return dy_prev.reshape(self.cache["shape"])
