@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from fwuffy.lunak.layers import *
 from fwuffy.lunak.losses import CrossEntropyLoss
 from fwuffy.lunak.activations import Softmax
-from fwuffy.lunak.nn import Sequential
+from fwuffy.lunak.nn import Sequential, load_model
 
 
 # functions for visualization
@@ -143,3 +143,6 @@ plt.plot(acc_history, label="Accuracy")
 plt.legend()
 plt.show()
 net.save("lol")
+model = load_model("lol")
+ts = plot_classifier(model, X_test, Y_labels, x_meshgrid_t, y_meshgrid_t, X_grid_t)
+print(ts)

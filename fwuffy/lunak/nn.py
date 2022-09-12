@@ -1,4 +1,5 @@
 import inspect
+import sys
 import typing
 import numpy as np
 import json
@@ -139,6 +140,7 @@ class Sequential(Model):
                     saved_layer = {
                         "layer_name": layer.name,
                         "layer_type": layer.__class__.__name__,
+                        "layer_params": list(layer.params.keys()),
                         "layer_args": args
                     }
                     saved_model["layers"].append(saved_layer)
@@ -156,3 +158,38 @@ class Sequential(Model):
                 for file_path in  [f for f in directory.resolve().glob('**/*') if f.is_file()]: 
                     path = "\\".join(file_path.parts[len(directory.parts):])
                     archive.write(file_path, arcname=path)
+
+def load_model(path):
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        directory = pathlib.Path(tmpdirname)
+        with zipfile.ZipFile(f"{path}.zip", mode="r") as archive:
+            archive.extractall(directory)
+            manisfest_fp = directory / "mnfst.json"
+            with manisfest_fp.open("r") as mnsft_f:
+                mnsft = json.load(mnsft_f)
+            
+            model_class = globals()[mnsft["model_name"]]
+            model_loss_class = getattr(sys.modules["fwuffy.lunak.losses"], mnsft["loss_func"])
+            model_inp_dim = mnsft["input_dims"]
+            model = model_class([], model_inp_dim, model_loss_class())
+            
+            layers = []
+            
+            for layer in mnsft["layers"]:
+                layer_class = getattr(sys.modules["fwuffy.lunak.layers"], layer["layer_type"])
+                layer_args = layer["layer_args"]
+                
+                layer_obj = layer_class(**layer_args)
+                layer_obj.name = layer["layer_name"]
+                layer_params = layer["layer_params"]
+                params = {}
+                for param in layer_params:
+                    param_fp = directory / layer["layer_name"] / (param + ".npy")
+                    param_d = np.load(param_fp)
+                    params[param] = param_d
+                layer_obj.params = params
+                
+                layers.append(layer_obj)
+            
+            model.layers = layers
+            return model
