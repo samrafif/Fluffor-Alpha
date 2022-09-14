@@ -1,4 +1,5 @@
 import inspect
+import pickle
 import sys
 import typing
 import numpy as np
@@ -140,13 +141,17 @@ class Sequential(Model):
                     saved_layer = {
                         "layer_name": layer.name,
                         "layer_type": layer.__class__.__name__,
-                        "layer_params": list(layer.params.keys()),
-                        "layer_args": args
+                        "layer_params": list(layer.params.keys())
                     }
                     saved_model["layers"].append(saved_layer)
 
                     dp = directory / layer.name
-                    dp.mkdir() if layer.trainable else None
+                    dp.mkdir()
+                    
+                    args_fp = dp / "args"
+                    with args_fp.open("wb") as f:
+                        pickle.dump(args, f)
+                    
                     for key, val in layer.params.items():
                         fp = dp / key
                         np.save(fp, val)
@@ -177,14 +182,18 @@ def load_model(path):
             
             for layer in mnsft["layers"]:
                 layer_class = getattr(sys.modules["fwuffy.lunak.layers"], layer["layer_type"])
-                layer_args = layer["layer_args"]
+                layer_name = layer["layer_name"]
+                
+                layer_args_fp = directory / layer_name / "args"
+                with layer_args_fp.open("rb") as f:
+                    layer_args = pickle.load(f)
                 
                 layer_obj = layer_class(**layer_args)
-                layer_obj.name = layer["layer_name"]
+                layer_obj.name = layer_name
                 layer_params = layer["layer_params"]
                 params = {}
                 for param in layer_params:
-                    param_fp = directory / layer["layer_name"] / (param + ".npy")
+                    param_fp = directory / layer_name / (param + ".npy")
                     param_d = np.load(param_fp)
                     params[param] = param_d
                 layer_obj.params = params
