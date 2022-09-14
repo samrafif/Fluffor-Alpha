@@ -1,5 +1,5 @@
 from fwuffy.lunak.layers import LSTMCell, RNN, Linear, Embedding, Reshape
-from fwuffy.lunak.nn import Sequential
+from fwuffy.lunak.nn import Sequential, load_model
 from fwuffy.lunak.losses import CrossEntropyLoss
 from fwuffy.lunak.utils import one_hot_encoding
 
@@ -60,6 +60,31 @@ for i in range(100):
 
     while letter != "<END>" and len(name) < 10:
         x = model(letter_x).reshape((1,-1,27,1))
+        index = np.random.choice(indexes, p=x[:, -1, :, :].ravel())
+        letter = index_to_chars[index]
+        name.append(letter)
+        letter_x=np.concatenate((letter_x, [[index]]), axis=1)
+
+    name.pop(-1)
+    print("".join(name)) if len(name) > 2 else None
+    generated.append("".join(name)) if len(name) > 2 else None
+print(f"Non-Empty names: {len(generated)} out of 100")
+lengths = [len(a) for a in generated]
+plt.hist(lengths)
+plt.show()
+
+model.save("name_gen")
+saved = load_model("name_gen")
+generated = []
+for i in range(100):
+    letter = None
+
+    index = random.choice(indexes)
+    letter_x = np.array([[index]])
+    name = []
+
+    while letter != "<END>" and len(name) < 10:
+        x = saved(letter_x).reshape((1,-1,27,1))
         index = np.random.choice(indexes, p=x[:, -1, :, :].ravel())
         letter = index_to_chars[index]
         name.append(letter)
