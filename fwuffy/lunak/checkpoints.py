@@ -8,5 +8,5 @@ class Checkpointer:
         self.path.mkdir()
         
     def save(self, net):
-      net.save(self.path / f"ckpt-{self.step}")
-      self.step += 1
+        net.save(self.path / f"ckpt-{self.step}")
+        self.step += 1
