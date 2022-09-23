@@ -2,6 +2,7 @@ from fwuffy.lunak.layers import LSTMCell, RNN, Linear, Embedding, Reshape
 from fwuffy.lunak.nn import Sequential, load_model
 from fwuffy.lunak.losses import CrossEntropyLoss
 from fwuffy.lunak.utils import one_hot_encoding
+from fwuffy.lunak.checkpoints import Checkpointer
 
 import random
 import numpy as np
@@ -40,6 +41,7 @@ model = Sequential([
   Linear(32, activation="sigmoid"),
   Linear(27, activation="softmax"),
 ], (10, 27, 1), CrossEntropyLoss())
+ckpts = Checkpointer("name_gen_ckpts")
 
 EPOCHS = 3
 for epoch in range(EPOCHS):
@@ -50,6 +52,7 @@ for epoch in range(EPOCHS):
     model.backwards()
     model.apply_gradients(0.005)
   print(aloss/299)
+  ckpts.save(model)
 generated = []
 for i in range(100):
     letter = None
