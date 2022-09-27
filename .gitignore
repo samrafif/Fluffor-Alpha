@@ -1,2 +1,5 @@
 __pycache__
 params
+build
+dist
+fwuffy.egg-info
