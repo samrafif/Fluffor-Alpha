@@ -509,10 +509,10 @@ class RNN(Layer):
     
     def init_layer(self, idx):
         super().init_layer(idx)
-        self.cell.in_dims = self.in_dims[-2]
+        self.cell.in_dims = self.in_dims[-1]
         self.cell.init_layer(idx)
         temp = list(self.in_dims)
-        temp[-2] = self.cell.out_dims
+        temp[-1] = self.cell.out_dims
         self.out_dims = tuple(temp)
     
     def forwards(self, x):
@@ -521,47 +521,42 @@ class RNN(Layer):
         self.out_sequences = []
         self.cache["x"] = x
         self.activation_ins = []
+        self.states = []
+        self.cell.reset_state(x.shape[0])
+        self.states.append(self.cell.state)
         #TODO: 😩 Please implement parallel mini-batching, and please reduce the number of loops
-        for seq in x:
-            out_seq = []
-            states = [self.cell.state]
-            activation_ins = []
+        seq = np.flip(x) if self.reverse else x
+        for el in range(x.shape[1]):
+            out, state, act_in = self.cell(seq[:, el])
             
-            seq = reversed(seq) if self.reverse else seq
-            for el in seq:
-                out, state, act_in = self.cell(el)
-                
-                out_seq.append(out)
-                states.append(state)
-                activation_ins.append(act_in)
-            self.cell.reset_state()
-            self.out_sequences.append((out_seq))
-            self.states.append(states)
-            self.activation_ins.append(activation_ins)
+            self.out_sequences.append(out)
+            self.states.append(state)
+            self.activation_ins.append(act_in)
+        self.cell.reset_state(x.shape[0])
         
+        self.activation_ins = np.array(self.activation_ins).transpose((1, 0, 2))
+        self.states = np.array(self.states).transpose((1, 0, 2))
+        self.out_sequences = np.array(self.out_sequences).transpose((1, 0, 2))
         y = np.array(self.out_sequences) if self.return_sequences else np.array(self.out_sequences[-1])
         return y if not self.return_state else (y, self.states)
     
     def backwards(self, dy):
         dxs = []
         param_updates = [0 for _ in range(self.cell.param_len)]
-        for dseq_idx, dseq in enumerate(dy):
-            ds_prev = self.cell.state_delta()
-            dxseq = []
-            
-            dseq = reversed(dseq) if self.reverse else dseq
-            for dyel_idx, dyel in reversed(list(enumerate(dseq))):
-                dx, ds_prev, param_updates = self.cell.backwards(
-                    dyel,
-                    ds_prev,
-                    param_updates,
-                    self.cache["x"][dseq_idx][dyel_idx],
-                    self.states[dseq_idx][dyel_idx],
-                    self.states[dseq_idx][dyel_idx+1],
-                    self.activation_ins[dseq_idx][dyel_idx],
-                )
-                dxseq.append(dx)
-            dxs.append(dxseq)
+        ds_prev = self.cell.state_delta(dy.shape[0])
+        
+        dy = np.flip(dy) if self.reverse else dy
+        for dyel_idx in reversed(range(dy.shape[1])):
+            dx, ds_prev, param_updates = self.cell.backwards(
+                dy[:, dyel_idx],
+                ds_prev,
+                param_updates,
+                self.cache["x"][:, dyel_idx],
+                self.states[:, dyel_idx],
+                self.states[:, dyel_idx+1],
+                self.activation_ins[:, dyel_idx],
+            )
+            dxs.append(dx)
         #param_updates = [grad/len(dy) for grad in param_updates]
         self.param_updates = [np.clip(grad, -1, 1) for grad in param_updates]
         #print(self.param_updates)
@@ -586,7 +581,6 @@ class RNNCell(Layer):
         self.trainable = True
         self.activation = activation
         self.activation_f = activations_dict[activation]()
-        self.state = np.zeros((self.state_dims, 1))
         
         self.param_len = 5
 
@@ -595,15 +589,15 @@ class RNNCell(Layer):
         scale = scales[activation](in_dims)
 
         # Input params
-        self.params["Wx"] = scale * np.random.randn(state_dims, in_dims)
+        self.params["Wx"] = scale * np.random.randn(in_dims, state_dims)
 
         # Hidden params
         self.params["Ws"] = scale * np.random.randn(state_dims, state_dims)
-        self.params["bs"] = np.zeros((state_dims, 1))
+        self.params["bs"] = np.zeros((1, state_dims))
 
         # Output params
-        self.params["Wy"] = scale * np.random.randn(out_dims, state_dims)
-        self.params["by"] = np.zeros((out_dims, 1))
+        self.params["Wy"] = scale * np.random.randn(state_dims, in_dims)
+        self.params["by"] = np.zeros((1, out_dims))
 
     def init_layer(self, idx):
         self._init_params(self.in_dims, self.state_dims, self.out_dims, self.activation)
@@ -627,13 +621,13 @@ class RNNCell(Layer):
             new_state: numpy.ndarray of shape (units) containing
                 the new computed state.
         """
-        x = np.dot(self.params["Wx"], x)
-        state = np.dot(self.params["Ws"], self.state) + self.params["bs"]
+        x = np.dot(x, self.params["Wx"])
+        state = np.dot(self.state, self.params["Ws"]) + self.params["bs"]
         tanh_in = x + state
         new_state = self.activation_f(tanh_in)
         self.state = new_state
 
-        y = np.dot(self.params["Wy"], new_state) + self.params["by"]
+        y = np.dot(new_state, self.params["Wy"]) + self.params["by"]
 
         return y, new_state, tanh_in
 
@@ -641,17 +635,17 @@ class RNNCell(Layer):
         self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, tanh_in
     ):
 
-        dwy = np.dot(dy, curr_state.T)
-        dby = dy
-        dsa = np.dot(self.grads["dsa"].T, dy) + ds_prev
-
+        dwy = np.dot(curr_state.T, dy)
+        dby = np.sum(dy, axis=0, keepdims=True)
+        dsa = np.dot(dy, self.grads["dsa"].T) + ds_prev
+        
         self.activation_f.local_grads(tanh_in)
         dtanh = self.activation_f.backwards(dsa)
-        dbs = dtanh
-        dws = np.dot(dtanh, prev_state.T)
-        dwx = np.dot(dtanh, inputs.T)
-        dx = np.dot(self.grads["dx"].T, dtanh)
-        ds_prev = np.dot(self.grads["dsp"].T, dtanh)
+        dbs = np.sum(dtanh, axis=0, keepdims=True)
+        dws = np.dot(prev_state.T, dtanh)
+        dwx = np.dot(inputs.T, dtanh)
+        dx = np.dot(dtanh, self.grads["dx"].T)
+        ds_prev = np.dot(dtanh, self.grads["dsp"].T)
 
         param_updates = [
             x + y for x, y in zip(prev_param_updates, [dwy, dws, dwx, dby, dbs])
@@ -678,11 +672,11 @@ class RNNCell(Layer):
         }
         super()._update_params(lr)
     
-    def reset_state(self):
-        self.state = np.zeros((self.state_dims, 1))
+    def reset_state(self, batch_size):
+        self.state = np.zeros((batch_size, self.state_dims))
     
-    def state_delta(self):
-        return np.zeros((self.state_dims, 1))
+    def state_delta(self, batch_size):
+        return np.zeros((batch_size, self.state_dims))
 
 
 class LSTMCell(Layer):
@@ -815,15 +809,15 @@ class LSTMCell(Layer):
         }
         super()._update_params(lr)
     
-    def reset_state(self):
-        self.state_c = np.zeros((self.units, 1))
-        self.state_h = np.zeros((self.units, 1))
+    def reset_state(self, batch_size):
+        self.state_c = np.zeros((batch_size, self.units, 1))
+        self.state_h = np.zeros((batch_size, self.units, 1))
         self.state = (self.state_c, self.state_h)
         self.inter_states = ()
     
-    def state_delta(self):
-        dstate_c = np.zeros((self.units, 1))
-        dstate_h = np.zeros((self.units, 1))
+    def state_delta(self, batch_size):
+        dstate_c = np.zeros((batch_size, self.units, 1))
+        dstate_h = np.zeros((batch_size, self.units, 1))
         dstate = (dstate_c, dstate_h)
         return dstate
 

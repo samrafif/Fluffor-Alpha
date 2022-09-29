@@ -21,7 +21,7 @@ def one_hot_encoding(x, size):
     output = []
 
     for _, num in enumerate(x):
-        one_hot = np.zeros((size, 1))
+        one_hot = np.zeros((size))
 
         if num is not None:
             one_hot[num] = 1
