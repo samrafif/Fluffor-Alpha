@@ -1,5 +1,5 @@
 # Fluffor
-![fluffor icon](https://github.com/mallowv/Fwuffy-Alpha/blob/master/FlufforIcon.png?raw=true) \
+<img src="https://github.com/mallowv/Fwuffy-Alpha/blob/master/FlufforIcon.png?raw=true" width=250> \
 "_the shitty DL framework that you were looking for_" \
 \
 this project is still in alpha, and this repo is temporary,
