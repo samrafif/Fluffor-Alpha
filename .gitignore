@@ -3,3 +3,4 @@ params
 build
 dist
 fwuffy.egg-info
+.vscode
