@@ -918,35 +918,3 @@ class Embedding(Layer):
 
         self.param_updates["We"] = dw
         return dy_prev.reshape(self.cache["shape"])
-
-
-# TODO: Implement self attention
-class SelfAttention(Layer):
-    def __init__(self, attention_dim=None):
-        super().__init__()
-
-        self.softmax = Softmax()
-        if not attention_dim:
-            self.attention_dim = self.in_dims
-
-    def _init_params(self, in_dims, attention_dim):
-        self.params["wq"] = np.random.randn(in_dims, attention_dim)
-        self.params["wk"] = np.random.randn(in_dims, attention_dim)
-        self.params["wv"] = np.random.randn(in_dims, attention_dim)
-
-    def init_layer(
-        self,
-        idx,
-    ):
-        self._init_params(self.in_dims, self.attention_dim)
-        super().init_layer(idx)
-
-    def forwards(self, x):
-        q = np.dot(x, self.params["wq"])
-        k = np.dot(x, self.params["wk"])
-        v = np.dot(x, self.params["wv"])
-
-        pre_scores = q.dot(k.T)
-        scores = self.softmax(pre_scores)
-
-        return scores
