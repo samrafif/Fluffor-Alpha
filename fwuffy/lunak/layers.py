@@ -537,10 +537,10 @@ class RNN(Layer):
 
     def init_layer(self, idx):
         super().init_layer(idx)
-        self.cell.in_dims = self.in_dims[-2]
+        self.cell.in_dims = self.in_dims[-1]
         self.cell.init_layer(idx)
         temp = list(self.in_dims)
-        temp[-2] = self.cell.out_dims
+        temp[-1] = self.cell.out_dims
         self.out_dims = tuple(temp)
 
     def forwards(self, x):
@@ -626,15 +626,15 @@ class RNNCell(Layer):
         scale = scales[activation](in_dims)
 
         # Input params
-        self.params["Wx"] = scale * np.random.randn(state_dims, in_dims)
+        self.params["Wx"] = scale * np.random.randn(in_dims, state_dims)
 
         # Hidden params
         self.params["Ws"] = scale * np.random.randn(state_dims, state_dims)
-        self.params["bs"] = np.zeros((state_dims, 1))
+        self.params["bs"] = np.zeros((1, state_dims))
 
         # Output params
-        self.params["Wy"] = scale * np.random.randn(out_dims, state_dims)
-        self.params["by"] = np.zeros((out_dims, 1))
+        self.params["Wy"] = scale * np.random.randn(state_dims, in_dims)
+        self.params["by"] = np.zeros((1, out_dims))
 
     def init_layer(self, idx):
         self._init_params(self.in_dims, self.state_dims, self.out_dims, self.activation)
@@ -658,30 +658,31 @@ class RNNCell(Layer):
             new_state: numpy.ndarray of shape (units) containing
                 the new computed state.
         """
-        x = np.dot(self.params["Wx"], x)
-        state = np.dot(self.params["Ws"], self.state) + self.params["bs"]
+        x = np.dot(x, self.params["Wx"])
+        state = np.dot(self.state, self.params["Ws"]) + self.params["bs"]
         tanh_in = x + state
         new_state = self.activation_f(tanh_in)
         self.state = new_state
 
-        y = np.dot(self.params["Wy"], new_state) + self.params["by"]
+        y = np.dot(new_state, self.params["Wy"]) + self.params["by"]
 
         return y, new_state, tanh_in
 
     def backwards(
         self, dy, ds_prev, prev_param_updates, inputs, prev_state, curr_state, tanh_in
     ):
-        dwy = np.dot(dy, curr_state.T)
-        dby = dy
-        dsa = np.dot(self.grads["dsa"].T, dy) + ds_prev
 
+        dwy = np.dot(curr_state.T, dy)
+        dby = np.sum(dy, axis=0, keepdims=True)
+        dsa = np.dot(dy, self.grads["dsa"].T) + ds_prev
+        
         self.activation_f.local_grads(tanh_in)
         dtanh = self.activation_f.backwards(dsa)
-        dbs = dtanh
-        dws = np.dot(dtanh, prev_state.T)
-        dwx = np.dot(dtanh, inputs.T)
-        dx = np.dot(self.grads["dx"].T, dtanh)
-        ds_prev = np.dot(self.grads["dsp"].T, dtanh)
+        dbs = np.sum(dtanh, axis=0, keepdims=True)
+        dws = np.dot(prev_state.T, dtanh)
+        dwx = np.dot(inputs.T, dtanh)
+        dx = np.dot(dtanh, self.grads["dx"].T)
+        ds_prev = np.dot(dtanh, self.grads["dsp"].T)
 
         param_updates = [
             x + y for x, y in zip(prev_param_updates, [dwy, dws, dwx, dby, dbs])
@@ -712,6 +713,12 @@ class RNNCell(Layer):
 
     def state_delta(self):
         return np.zeros((self.state_dims, 1))
+    
+    def reset_state(self, batch_size):
+        self.state = np.zeros((batch_size, self.state_dims))
+    
+    def state_delta(self, batch_size):
+        return np.zeros((batch_size, self.state_dims))
 
 
 class LSTMCell(Layer):

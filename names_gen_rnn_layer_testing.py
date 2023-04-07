@@ -79,7 +79,7 @@ batchesy = np.array(np.split(one_hot_encodedy, 61))
 EPOCHS = 10
 units = 27
 input_dims = len(unique_chars)
-rnn_layer0 = RNN(RNNCell(units))
+rnn_layer0 = RNN(RNNCell(units), return_sequences=True)
 linear0 = Linear(27, activation="softmax")
 linear0.in_dims = 27
 linear0.init_layer(0)
@@ -90,7 +90,7 @@ for i in range(EPOCHS):
     
     for batch, batchy in zip(track(batches), batchesy):
         x=rnn_layer0(batch)
-        #x=linear0(x).reshape((-1, 16, 27, 1))
+        x=linear0(x.reshape((-1, 27))).reshape((-1, 10, 27))
         
         losses = [[CrossEntropyLoss() for el in seq] for seq in x]
         loss_v = 0
@@ -108,48 +108,48 @@ for i in range(EPOCHS):
             dys.append(seqdy)
         dy = np.array(dys)
         
-        # dy = linear0.backwards(dy).reshape((-1, 16, 27, 1))
+        dy = linear0.backwards(dy.reshape((-1, 27))).reshape((-1, 10, 27))
         dy = rnn_layer0.backwards(dy)
-        rnn_layer0._update_params(0.1)
-        # linear0._update_params(0.1)
+        rnn_layer0._update_params(0.1/299)
+        linear0._update_params(0.1/299)
     print(loss_v/len(x))
     for i in range(1):
         letter = None
 
-        letter_x = np.zeros((1, 1, input_dims, 1))
+        letter_x = np.zeros((1, 1, input_dims))
         name = []
 
         while letter != "<END>" and len(name) < 10:
             x=rnn_layer0(letter_x)
-
+            x=linear0(x.reshape((-1, 27))).reshape((-1, 1, 27))
             index = np.random.choice(indexes, p=x.ravel())
             letter = index_to_chars[index]
             name.append(letter)
 
-            letter_x = np.zeros((1, 1, input_dims, 1))
-            letter_x[0,0,index] = [1]
+            letter_x = np.zeros((1, 1, input_dims))
+            letter_x[0,0,index] = 1
 
         print("".join(name))
 generated=[]
 for i in range(100):
-    letter = None
+        letter = None
 
-    letter_x = np.zeros((1, 1, input_dims, 1))
-    name = []
+        letter_x = np.zeros((1, 1, input_dims))
+        name = []
+        
+        while letter != "<END>" and len(name) < 10:
+            x=rnn_layer0(letter_x)
+            x=linear0(x.reshape((-1, 27))).reshape((-1, 1, 27))
+            index = np.random.choice(indexes, p=x.ravel())
+            letter = index_to_chars[index]
+            name.append(letter)
 
-    while letter != "<END>" and len(name) < 10:
-        x=rnn_layer0(letter_x)
+            letter_x = np.zeros((1, 1, input_dims))
+            letter_x[0,0,index] = 1
 
-        index = np.random.choice(indexes, p=x.ravel())
-        letter = index_to_chars[index]
-        name.append(letter)
-
-        letter_x = np.zeros((1, 1, input_dims, 1))
-        letter_x[0,0,index] = [1]
-
-    name.pop(-1)
-    print("".join(name)) if len(name) > 2 else None
-    generated.append("".join(name)) if len(name) > 2 else None
+        name.pop(-1)
+        print("".join(name)) if len(name) > 2 else None
+        generated.append("".join(name)) if len(name) > 2 else None
 print(f"Non-Empty names: {len(generated)} out of 100")
 lengths = [len(a) for a in generated]
 plt.hist(lengths)
